@@ -122,15 +122,17 @@ export const SharePointService = {
     } catch (e) { return []; }
   },
 
-  async getOperations(token: string, userEmail: string): Promise<SPOperation[]> {
+  async getOperations(token: string, _userEmail: string): Promise<SPOperation[]> {
     try {
         const siteId = await getResolvedSiteId(token);
         const list = await findListByIdOrName(siteId, 'Operacoes_Checklist', token);
         const { mapping } = await getListColumnMapping(siteId, list.id, token);
         const colEmail = resolveFieldName(mapping, 'Email');
+        
+        // REMOVIDO FILTRO POR EMAIL: Retorna todas as operações cadastradas
         const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields`, token);
+        
         return (data.value || [])
-          .filter((item: any) => (item.fields[colEmail] || "").toLowerCase().trim() === userEmail.toLowerCase().trim())
           .map((item: any) => ({
             id: String(item.fields.id || item.id),
             Title: item.fields.Title || "OP",
@@ -304,62 +306,33 @@ export const SharePointService = {
     } catch (e) { return []; }
   },
 
-  async getRegisteredUsers(token: string, email: string): Promise<string[]> {
+  async getRegisteredUsers(token: string, _email: string): Promise<string[]> {
     try {
       const siteId = await getResolvedSiteId(token);
       const list = await findListByIdOrName(siteId, 'Usuarios_cco', token);
+      const { mapping } = await getListColumnMapping(siteId, list.id, token);
       
-      const searchEmail = email.toLowerCase().trim();
-      
-      // Conforme os dados fornecidos pelo usuário:
-      // Email -> InternalName: Email
-      // Nome -> InternalName: LinkTitle
-      // Titulo -> InternalName: Title
-      
-      // Pega todos os itens da lista
+      const colNome = resolveFieldName(mapping, 'Nome');
+      const colTitle = resolveFieldName(mapping, 'Title');
+
+      // PEGA TODOS OS USUÁRIOS: Sem filtro por email
       const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$top=999`, token);
       
       const results: string[] = [];
       (data.value || []).forEach((item: any) => {
         const f = item.fields || {};
         
-        // Tentamos o match exato na coluna 'Email' (InternalName: Email)
-        const itemEmail = String(f.Email || "").toLowerCase().trim();
+        // Extrai o nome das colunas prováveis
+        let name = f[colNome] || f['LinkTitle'] || f['Nome'] || f[colTitle] || f['Title'] || "";
         
-        // Verificação redundante caso a coluna não venha como 'Email' na resposta do Graph
-        let isMatch = itemEmail === searchEmail;
-        
-        if (!isMatch) {
-            // Busca o e-mail em qualquer propriedade da linha (fallback)
-            isMatch = Object.entries(f).some(([key, val]) => {
-                if (typeof val !== 'string' || key.startsWith('@')) return false;
-                return val.toLowerCase().trim() === searchEmail;
-            });
-        }
-
-        if (isMatch) {
-           // Conforme o mapeamento do usuário: Nome é 'LinkTitle'
-           let name = f.LinkTitle || f.Nome || f.Title || "";
-           
-           // Se o nome extraído for igual ao e-mail, tentamos outro campo
-           if (!name || (typeof name === 'string' && name.toLowerCase().trim() === searchEmail)) {
-               const otherField = Object.entries(f).find(([k, v]) => 
-                   typeof v === 'string' && 
-                   v.toLowerCase().trim() !== searchEmail && 
-                   !k.startsWith('@') && 
-                   !['id', 'ContentType', 'odata.etag'].includes(k)
-               );
-               if (otherField) name = String(otherField[1]);
-           }
-
-           if (name) {
-               results.push(String(name).trim());
-           }
+        if (name && typeof name === 'string' && name.trim()) {
+            results.push(name.trim());
         }
       });
 
-      const finalResults = Array.from(new Set(results));
-      console.log(`[AUTH] Verificando acesso para ${email}. Encontrado:`, finalResults);
+      // Retorna lista única e ordenada alfabeticamente
+      const finalResults = Array.from(new Set(results)).sort((a, b) => a.localeCompare(b));
+      console.log(`[AUTH] Carregados ${finalResults.length} usuários para seleção de reset.`);
       return finalResults;
     } catch (e) { 
       console.error("Erro crítico em getRegisteredUsers:", e);
