@@ -21,7 +21,8 @@ async function graphFetch(endpoint: string, token: string, options: RequestInit 
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`Graph Error: ${res.status} - ${errText}`);
+    // Retornamos o objeto de erro para tratamento específico em vez de travar tudo
+    return { error: true, status: res.status, message: errText };
   }
   return res.status === 204 ? null : res.json();
 }
@@ -29,12 +30,14 @@ async function graphFetch(endpoint: string, token: string, options: RequestInit 
 async function getResolvedSiteId(token: string): Promise<string> {
   if (cachedSiteId) return cachedSiteId;
   const siteData = await graphFetch(`/sites/${SITE_PATH}`, token);
+  if (siteData.error) throw new Error(siteData.message);
   cachedSiteId = siteData.id;
   return siteData.id;
 }
 
 async function findListByIdOrName(siteId: string, listName: string, token: string): Promise<any> {
   const data = await graphFetch(`/sites/${siteId}/lists`, token);
+  if (data.error) throw new Error(data.message);
   const found = data.value.find((l: any) => 
     l.name?.toLowerCase() === listName.toLowerCase() || 
     l.displayName?.toLowerCase() === listName.toLowerCase()
@@ -53,6 +56,8 @@ async function getListColumnMapping(siteId: string, listId: string, token: strin
   if (columnMappingCache[cacheKey]) return columnMappingCache[cacheKey];
 
   const columns = await graphFetch(`/sites/${siteId}/lists/${listId}/columns`, token);
+  if (columns.error) throw new Error(columns.message);
+  
   const mapping: Record<string, string> = {};
   const readOnly = new Set<string>();
   const internalNames = new Set<string>();
@@ -83,6 +88,7 @@ export const SharePointService = {
     const mapping = await getListColumnMapping(siteId, list.id, token);
     
     const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields`, token);
+    if (data.error) throw new Error(data.message);
     
     const fId = resolveFieldName(mapping.mapping, 'ID');
     const fTitle = resolveFieldName(mapping.mapping, 'Title');
@@ -109,6 +115,7 @@ export const SharePointService = {
     const mapping = await getListColumnMapping(siteId, list.id, token);
     
     const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields`, token);
+    if (data.error) throw new Error(data.message);
     
     const fEmail = resolveFieldName(mapping.mapping, 'Email');
     const fTitle = resolveFieldName(mapping.mapping, 'Title');
@@ -145,9 +152,26 @@ export const SharePointService = {
     const filterParts = opSiglas.map(sigla => `fields/${fOpSigla} eq '${sigla}'`);
     const filter = filterParts.join(' or ');
     
-    const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
+    // Tenta com Filtro (Performance)
+    let data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
     
-    return (data.value || []).map((item: any) => ({
+    // Se falhar por erro 400 (não indexado), tenta buscar tudo e filtrar no cliente
+    if (data.error && data.status === 400) {
+      console.warn("Filtro SharePoint falhou (coluna não indexada). Buscando lista completa para processamento local...");
+      data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$top=5000`, token);
+    }
+
+    if (data.error) throw new Error(data.message);
+
+    const items = data.value || [];
+    
+    // Filtro manual caso o Graph não tenha conseguido filtrar na origem
+    const filteredItems = items.filter((item: any) => {
+        const sigla = item.fields[fOpSigla];
+        return opSiglas.includes(sigla);
+    });
+
+    return filteredItems.map((item: any) => ({
       id: item.id,
       DataReferencia: item.fields[fData],
       TarefaID: String(item.fields[fTarefaId]),
@@ -198,6 +222,7 @@ export const SharePointService = {
     if (missingItems.length === 0) return;
 
     console.log(`Criando ${missingItems.length} novas células na matriz...`);
+    // Criamos de 1 em 1 para garantir estabilidade, mas em paralelo limitado se necessário
     for (const item of missingItems) {
       try {
         await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
@@ -227,19 +252,26 @@ export const SharePointService = {
     fields[fData] = new Date().toISOString();
 
     const filter = `fields/${fTitle} eq '${matrixKey}'`;
-    const existing = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
+    let existing = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
     
-    if (existing?.value?.length > 0) {
+    // Fallback se o Title não estiver indexado
+    if (existing.error && existing.status === 400) {
+        existing = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields`, token);
+        if (!existing.error) {
+            existing.value = existing.value.filter((i: any) => i.fields[fTitle] === matrixKey);
+        }
+    }
+
+    if (!existing.error && existing.value?.length > 0) {
       const itemId = existing.value[0].id;
       await graphFetch(`/sites/${siteId}/lists/${list.id}/items/${itemId}/fields`, token, {
         method: 'PATCH',
         body: JSON.stringify(fields)
       });
     } else {
-        // Fallback robusto se a célula não existir
         const fTarefaId = resolveFieldName(mapping.mapping, 'TarefaID');
         const fOpSigla = resolveFieldName(mapping.mapping, 'OperacaoSigla');
-        const fullFields = { ...fields };
+        const fullFields: any = { ...fields };
         fullFields[fTitle] = matrixKey;
         fullFields[fTarefaId] = status.TarefaID;
         fullFields[fOpSigla] = status.OperacaoSigla;
@@ -265,7 +297,7 @@ export const SharePointService = {
     fields[fTitle] = record.resetBy || 'Reset';
     fields[fData] = new Date(record.timestamp).toISOString().split('.')[0] + 'Z';
     fields[fJSON] = JSON.stringify(record.tasks);
-    fields[fCelula] = record.email;
+    fields[fEmailMapping(fCelula)] = record.email;
 
     await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
       method: 'POST',
@@ -284,8 +316,17 @@ export const SharePointService = {
     const fJSON = resolveFieldName(mapping.mapping, 'DadosJSON');
 
     const filter = `fields/${fCelula} eq '${userEmail}'`;
-    const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
+    let data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
     
+    if (data.error && data.status === 400) {
+        data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields`, token);
+        if (!data.error) {
+            data.value = data.value.filter((i: any) => String(i.fields[fCelula] || "").toLowerCase() === userEmail.toLowerCase());
+        }
+    }
+
+    if (data.error) throw new Error(data.message);
+
     return (data.value || []).map((item: any) => ({
       id: item.id,
       timestamp: item.fields[fData],
@@ -304,7 +345,17 @@ export const SharePointService = {
     const fNome = resolveFieldName(mapping.mapping, 'Nome');
 
     const filter = `fields/${fEmail} eq '${email}'`;
-    const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
+    let data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
+    
+    if (data.error && data.status === 400) {
+        data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields`, token);
+        if (!data.error) {
+            data.value = data.value.filter((i: any) => String(i.fields[fEmail] || "").toLowerCase() === email.toLowerCase());
+        }
+    }
+
+    if (data.error) throw new Error(data.message);
+
     return (data.value || []).map((item: any) => item.fields[fNome] || "").filter(Boolean);
   },
 
@@ -322,3 +373,6 @@ export const SharePointService = {
     }));
   }
 };
+
+// Helper simples para mapeamento de e-mail se necessário
+function fEmailMapping(f: string) { return f; }
