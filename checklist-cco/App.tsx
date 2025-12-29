@@ -8,6 +8,7 @@ import RouteDepartureView from './components/RouteDeparture';
 import SharePointExplorer from './components/SharePointExplorer';
 import Login from './components/Login';
 import { SharePointService } from './services/sharepointService';
+import { logout as msalLogout } from './services/authService';
 import { Task, User } from './types';
 import { setCurrentUser as setStorageUser } from './services/storageService';
 
@@ -40,7 +41,6 @@ const AppContent = () => {
       const spOps = await SharePointService.getOperations(user.accessToken, user.email);
       
       setSyncMessage("Sincronizando Matriz 1:1...");
-      // Garante que todas as células existem no SharePoint antes de ler
       await SharePointService.ensureMatrix(user.accessToken, spTasks, spOps);
 
       setSyncMessage("Recuperando Status...");
@@ -79,7 +79,11 @@ const AppContent = () => {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    // Chama o logout real da Microsoft
+    await msalLogout();
+    
+    // Limpeza de estado local caso o redirect não tenha ocorrido
     setUser(null);
     setStorageUser(null);
     delete (window as any).__access_token;

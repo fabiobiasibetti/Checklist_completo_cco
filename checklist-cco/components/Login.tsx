@@ -3,21 +3,8 @@ import React, { useState, useEffect } from 'react';
 import { User } from '../types';
 import { LogIn, Loader2, AlertCircle, ShieldCheck } from 'lucide-react';
 import { setCurrentUser } from '../services/storageService';
-import { PublicClientApplication, Configuration, InteractionRequiredAuthError } from "@azure/msal-browser";
-
-const msalConfig: Configuration = {
-    auth: {
-        clientId: "c176306d-f849-4cf4-bfca-22ff214cdaad",
-        authority: "https://login.microsoftonline.com/7d9754b3-dcdb-4efe-8bb7-c0e5587b86ed",
-        redirectUri: window.location.origin,
-    },
-    cache: {
-        cacheLocation: "localStorage",
-        storeAuthStateInCookie: false,
-    }
-};
-
-const msalInstance = new PublicClientApplication(msalConfig);
+import { InteractionRequiredAuthError } from "@azure/msal-browser";
+import { msalInstance } from '../services/authService';
 
 const MicrosoftIcon = () => (
     <svg width="20" height="20" viewBox="0 0 23 23" xmlns="http://www.w3.org/2000/svg">
@@ -35,7 +22,6 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
         try {
             await msalInstance.initialize();
             
-            // 1. Processa retorno de redirecionamento (se houver)
             const response = await msalInstance.handleRedirectPromise();
             if (response && response.account) {
                 onLogin({
@@ -46,7 +32,6 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
                 return;
             }
 
-            // 2. Verifica se já existem contas logadas para tentar login automático
             const accounts = msalInstance.getAllAccounts();
             if (accounts.length > 0) {
                 try {
@@ -83,9 +68,6 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
     setIsLoggingIn(true);
     setError(null);
     try {
-        // Garantir inicialização caso o useEffect ainda não tenha terminado
-        try { await msalInstance.initialize(); } catch(e) {}
-        
         const loginRequest = {
             scopes: ["User.Read", "Sites.ReadWrite.All"],
             prompt: "select_account"
