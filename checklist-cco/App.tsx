@@ -8,7 +8,7 @@ import RouteDepartureView from './components/RouteDeparture';
 import SharePointExplorer from './components/SharePointExplorer';
 import Login from './components/Login';
 import { SharePointService } from './services/sharepointService';
-import { Task, User, SPTask, SPOperation, SPStatus } from './types';
+import { Task, User } from './types';
 import { setCurrentUser as setStorageUser } from './services/storageService';
 
 const SidebarLink = ({ to, icon: Icon, label, active, collapsed }: any) => (
@@ -23,6 +23,7 @@ const AppContent = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [syncMessage, setSyncMessage] = useState("Iniciando...");
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [collapsed, setCollapsed] = useState(true);
   const [collapsedCategories, setCollapsedCategories] = useState<string[]>([]);
@@ -34,8 +35,15 @@ const AppContent = () => {
     (window as any).__access_token = user.accessToken; 
     setIsLoading(true);
     try {
+      setSyncMessage("Carregando Definições...");
       const spTasks = await SharePointService.getTasks(user.accessToken);
       const spOps = await SharePointService.getOperations(user.accessToken, user.email);
+      
+      setSyncMessage("Sincronizando Matriz 1:1...");
+      // Garante que todas as células existem no SharePoint antes de ler
+      await SharePointService.ensureMatrix(user.accessToken, spTasks, spOps);
+
+      setSyncMessage("Recuperando Status...");
       const today = new Date().toISOString().split('T')[0];
       const spStatus = await SharePointService.getStatusByDate(user.accessToken, today);
 
@@ -65,6 +73,7 @@ const AppContent = () => {
       setTasks(matrixTasks.filter(t => t.active !== false));
     } catch (err) {
       console.error("Erro ao carregar SharePoint:", err);
+      alert("Erro crítico na sincronização: " + (err as Error).message);
     } finally {
       setIsLoading(false);
     }
@@ -110,7 +119,7 @@ const AppContent = () => {
         {isLoading ? (
           <div className="h-full flex items-center justify-center flex-col gap-4 text-blue-600">
              <Loader2 size={40} className="animate-spin" />
-             <p className="font-bold animate-pulse">Sincronizando com SharePoint...</p>
+             <p className="font-bold animate-pulse text-sm uppercase tracking-widest">{syncMessage}</p>
           </div>
         ) : (
           <Routes>
