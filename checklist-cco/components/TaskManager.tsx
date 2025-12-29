@@ -207,11 +207,10 @@ const TaskManager: React.FC<TaskManagerProps> = ({
     
     setIsUpdating(true);
     try {
-        // 1. Salva o snapshot APENAS dos dados do usuário logado no histórico
         await SharePointService.saveHistory(currentUser.accessToken, {
             id: Date.now().toString(),
             timestamp: new Date().toISOString(),
-            tasks: tasks, // Aqui 'tasks' já contém apenas as operações do usuário logado (locations)
+            tasks: tasks,
             resetBy: resetResponsible,
             email: currentUser.email
         });
@@ -219,7 +218,6 @@ const TaskManager: React.FC<TaskManagerProps> = ({
         const today = new Date().toISOString().split('T')[0];
         const todayKey = today.replace(/-/g, '');
         
-        // 2. Cria as promessas de reset APENAS para as 'locations' (operações) deste usuário
         const resetPromises: Promise<any>[] = [];
         tasks.forEach(task => {
             locations.forEach(loc => {
@@ -237,7 +235,6 @@ const TaskManager: React.FC<TaskManagerProps> = ({
 
         await Promise.all(resetPromises);
 
-        // 3. Atualiza interface local
         setTasks(prev => prev.map(t => ({
             ...t,
             operations: locations.reduce((acc, loc) => ({ ...acc, [loc]: 'PR' }), {})
@@ -246,7 +243,7 @@ const TaskManager: React.FC<TaskManagerProps> = ({
         autoCollapsedSessionRef.current.clear();
         manuallyOpenedRef.current.clear();
         setIsResetModalOpen(false);
-        alert("Checklist resetado e salvo com sucesso no SharePoint! Apenas seus dados foram alterados.");
+        alert("Checklist resetado e salvo com sucesso no SharePoint!");
     } catch (error: any) {
         console.error("Erro no Reset:", error);
         alert(`ERRO CRÍTICO: Não foi possível resetar. Detalhe: ${error.message}`);
@@ -341,10 +338,10 @@ const TaskManager: React.FC<TaskManagerProps> = ({
             <button 
               onClick={handleOpenResetModal}
               className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-all border border-amber-100 dark:border-amber-800 shadow-sm"
-              title="Resetar meus dados e Salvar Histórico"
+              title="Resetar Checklist e Salvar no SharePoint"
             >
               <RotateCcw size={18} />
-              <span className="text-xs font-bold hidden sm:inline">Resetar Meus Dados</span>
+              <span className="text-xs font-bold hidden sm:inline">Resetar</span>
             </button>
             <button onClick={() => setCompact(!compact)} className={`p-2 rounded-xl transition-all ${!compact ? 'bg-blue-100 text-blue-600 dark:bg-blue-900' : 'text-slate-400 hover:bg-slate-100'}`} title="Modo Visualização">
               {compact ? <Maximize2 size={18}/> : <Minimize2 size={18}/>}
@@ -368,7 +365,7 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                         </div>
                         <div>
                             <h3 className="font-bold text-lg">Resetar Checklist</h3>
-                            <p className="text-[10px] text-amber-200 uppercase tracking-tighter">Apenas suas operações serão limpas</p>
+                            <p className="text-[10px] text-amber-200 uppercase tracking-tighter">Snapshot será salvo no SharePoint</p>
                         </div>
                     </div>
                     <button onClick={() => setIsResetModalOpen(false)} className="hover:bg-white/10 p-1 rounded-full transition-colors">
@@ -376,13 +373,6 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                     </button>
                 </div>
                 <div className="p-6 bg-gray-50 dark:bg-slate-900">
-                    <div className="p-4 mb-6 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-900/30 rounded-xl text-amber-700 dark:text-amber-400 text-xs">
-                        <div className="flex items-center gap-2 font-bold mb-1">
-                            <AlertCircle size={16} /> Atenção
-                        </div>
-                        Ao confirmar, todos os itens marcados nas suas colunas (operações vinculadas a você) voltarão para status <b>PR</b>. Uma cópia atual será salva no histórico.
-                    </div>
-
                     <div className="mb-6">
                         <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2">Quem está realizando o reset?</label>
                         
@@ -429,6 +419,12 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                             {isUpdating ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
                             Confirmar Reset
                         </button>
+                    </div>
+                    
+                    <div className="mt-4 text-center">
+                        <p className="text-[10px] text-slate-400 font-medium italic">
+                            O histórico será vinculado ao acesso corporativo logado.
+                        </p>
                     </div>
                 </div>
              </div>
