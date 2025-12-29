@@ -11,6 +11,7 @@ async function graphFetch(endpoint: string, token: string, options: RequestInit 
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${token}`,
     'Content-Type': 'application/json',
+    // Adicionado header para ignorar avisos de colunas não indexadas em listas grandes
     'Prefer': 'HonorNonIndexedQueriesWarningMayFailOverLargeLists'
   };
 
@@ -144,6 +145,7 @@ export const SharePointService = {
     const todayKey = today.replace(/-/g, '');
     
     const colData = resolveFieldName(mapping, 'DataReferencia');
+    // Ajuste de filtro para garantir compatibilidade com colunas de data do SharePoint
     const filter = `fields/${colData} ge '${today}T00:00:00Z' and fields/${colData} le '${today}T23:59:59Z'`;
     const existing = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
     const existingKeys = new Set((existing.value || []).map((i: any) => i.fields.Title));
@@ -155,7 +157,6 @@ export const SharePointService = {
       for (const op of ops) {
         const uniqueKey = `${todayKey}_${task.id}_${op.Title}`;
         if (!existingKeys.has(uniqueKey)) {
-          // Preenche Title e ChaveUnica (se existir) com o mesmo valor para garantir integridade
           const rawFields: any = {
             Title: uniqueKey,
             ChaveUnica: uniqueKey, 
@@ -218,7 +219,6 @@ export const SharePointService = {
     const existing = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
     
     if (!existing.value || existing.value.length === 0) {
-        // Fallback: Se não existir, tenta criar
         const rawFields: any = {
           Title: status.Title,
           ChaveUnica: status.Title,
