@@ -309,34 +309,46 @@ export const SharePointService = {
       const siteId = await getResolvedSiteId(token);
       const list = await findListByIdOrName(siteId, 'Usuarios_cco', token);
       
-      // ABORDAGEM INFALÍVEL: Pega todos os itens sem filtro OData
+      // Busca todos os itens da lista para filtro local resiliente
       const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$top=999`, token);
-      
       const searchEmail = email.toLowerCase().trim();
       
-      // Filtra localmente verificando TODOS os campos de texto da linha
-      const matchedItems = (data.value || []).filter((item: any) => {
-          const f = item.fields || {};
-          // Se qualquer valor de qualquer coluna for exatamente o e-mail que buscamos, temos um match.
-          return Object.values(f).some(val => 
-              typeof val === 'string' && val.toLowerCase().trim() === searchEmail
-          );
-      });
-      
-      return matchedItems.map((item: any) => {
-          const f = item.fields || {};
-          // Ao encontrar o registro pelo e-mail, precisamos extrair o nome.
-          // Priorizamos colunas comuns. Se não houver, pegamos qualquer campo que NÃO seja o e-mail.
-          if (f.Nome && f.Nome.toLowerCase().trim() !== searchEmail) return f.Nome;
-          if (f.Title && f.Title.toLowerCase().trim() !== searchEmail) return f.Title;
-          if (f.LinkTitle && f.LinkTitle.toLowerCase().trim() !== searchEmail) return f.LinkTitle;
+      console.log(`[Auth] Buscando email: ${searchEmail} em ${data.value?.length || 0} registros.`);
+
+      // Fix: Added explicit type cast to the initial value of reduce to avoid unknown[] inference at the result level
+      const results = (data.value || []).reduce((acc: string[], item: any) => {
+        const f = item.fields || {};
+        
+        // Verificação super flexível: busca o e-mail em QUALQUER coluna de texto
+        const isMatch = Object.entries(f).some(([key, val]) => {
+          if (typeof val !== 'string' || key.startsWith('@')) return false;
+          const normalizedVal = val.toLowerCase().trim();
+          return normalizedVal === searchEmail;
+        });
+
+        if (isMatch) {
+          // Extrai o nome das colunas Title ou LinkTitle (que mapeiam para 'Nome' no SP do usuário)
+          // Se o Title for o próprio email, tenta pegar o outro campo
+          let name = f.Title || f.LinkTitle || f.Nome || "";
           
-          const anyOtherStringField = Object.entries(f).find(([key, val]) => 
-              typeof val === 'string' && val.toLowerCase().trim() !== searchEmail && !key.startsWith('@') && !['id', 'odata.etag'].includes(key)
-          );
-          
-          return anyOtherStringField ? (anyOtherStringField[1] as string) : "Usuário Identificado";
-      }).filter(Boolean);
+          if (!name || name.toLowerCase().trim() === searchEmail) {
+             // Fallback: procura o primeiro campo de texto que NÃO seja o email
+             const otherField = Object.entries(f).find(([k, v]) => 
+                typeof v === 'string' && 
+                v.toLowerCase().trim() !== searchEmail && 
+                !k.startsWith('@') && 
+                !['id', 'ContentType'].includes(k)
+             );
+             name = otherField ? String(otherField[1]) : "Usuário Confirmado";
+          }
+          acc.push(name);
+        }
+        return acc;
+      }, [] as string[]);
+
+      const uniqueResults = Array.from(new Set(results));
+      console.log(`[Auth] Matches encontrados:`, uniqueResults);
+      return uniqueResults;
     } catch (e) { 
       console.error("Erro crítico em getRegisteredUsers:", e);
       return []; 
