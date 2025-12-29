@@ -11,7 +11,6 @@ async function graphFetch(endpoint: string, token: string, options: RequestInit 
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${token}`,
     'Content-Type': 'application/json',
-    // Adicionado header para ignorar avisos de colunas não indexadas em listas grandes
     'Prefer': 'HonorNonIndexedQueriesWarningMayFailOverLargeLists'
   };
 
@@ -25,12 +24,20 @@ async function graphFetch(endpoint: string, token: string, options: RequestInit 
 
   if (!res.ok) {
     let errDetail = "";
+    let errCode = "";
     try {
       const err = await res.json();
       errDetail = err.error?.message || JSON.stringify(err);
+      errCode = err.error?.code || "";
     } catch(e) {
       errDetail = await res.text();
     }
+    
+    // Se for um erro de duplicidade (Unique Constraint), retornamos um objeto especial em vez de travar
+    if (res.status === 400 && (errDetail.includes("unique constraints") || errDetail.includes("already has the provided value"))) {
+        return { _isDuplicate: true, detail: errDetail };
+    }
+
     console.warn(`Graph API Response [${res.status}]: ${errDetail}`);
     throw new Error(errDetail);
   }
@@ -145,9 +152,9 @@ export const SharePointService = {
     const todayKey = today.replace(/-/g, '');
     
     const colData = resolveFieldName(mapping, 'DataReferencia');
-    // Ajuste de filtro para garantir compatibilidade com colunas de data do SharePoint
+    // Adicionado $top=999 para garantir que pegamos todos os itens já criados hoje
     const filter = `fields/${colData} ge '${today}T00:00:00Z' and fields/${colData} le '${today}T23:59:59Z'`;
-    const existing = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
+    const existing = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}&$top=999`, token);
     const existingKeys = new Set((existing.value || []).map((i: any) => i.fields.Title));
 
     const createPromises: Promise<any>[] = [];
@@ -175,9 +182,16 @@ export const SharePointService = {
             }
           });
 
+          // Usamos a lógica de ignorar erros de duplicidade aqui também para maior segurança
           createPromises.push(graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
             method: 'POST',
             body: JSON.stringify({ fields })
+          }).catch(e => {
+              // Silencia o erro se for apenas conflito de chave única
+              if (e.message?.includes("unique constraints") || e.message?.includes("already has the provided value")) {
+                  return null;
+              }
+              throw e;
           }));
         }
       }
@@ -196,7 +210,8 @@ export const SharePointService = {
         
         const colData = resolveFieldName(mapping, 'DataReferencia');
         const filter = `fields/${colData} ge '${date}T00:00:00Z' and fields/${colData} le '${date}T23:59:59Z'`;
-        const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
+        // Adicionado $top=999 aqui também para garantir a leitura da matriz completa
+        const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}&$top=999`, token);
         
         return (data.value || []).map((item: any) => ({
           id: item.id,
@@ -233,7 +248,10 @@ export const SharePointService = {
             const int = resolveFieldName(mapping, key);
             if (internalNames.has(int) && (!readOnly.has(int) || int === 'Title')) fields[int] = rawFields[key];
         });
-        await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, { method: 'POST', body: JSON.stringify({ fields }) });
+        
+        const result = await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, { method: 'POST', body: JSON.stringify({ fields }) });
+        // Se retornar duplicado via POST (corrida de usuários), ignoramos
+        if (result && result._isDuplicate) return;
         return;
     }
 
