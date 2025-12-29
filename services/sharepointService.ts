@@ -308,27 +308,28 @@ export const SharePointService = {
     try {
       const siteId = await getResolvedSiteId(token);
       const list = await findListByIdOrName(siteId, 'Usuarios_cco', token);
-      const { mapping } = await getListColumnMapping(siteId, list.id, token);
       
-      const colEmail = resolveFieldName(mapping, 'Email');
+      // ABORDAGEM INFALÍVEL: Pega todos e filtra localmente. 
+      // Isso resolve qualquer problema de indexação de coluna ou sintaxe de filtro do Graph.
+      const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$top=999`, token);
       
-      // Ajuste crucial: Tenta resolver 'Nome', mas se cair em LinkTitle (calculado),
-      // usa 'Title' como fallback, que é onde o dado real geralmente vive no Graph.
-      let colNome = resolveFieldName(mapping, 'Nome');
-      if (colNome === 'LinkTitle' || !colNome) colNome = 'Title';
-
-      // Filtro mais robusto ignorando espaços no início/fim
-      const searchEmail = email.trim();
-      const filter = `fields/${colEmail} eq '${searchEmail}'`;
+      const searchEmail = email.toLowerCase().trim();
       
-      const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
+      // Encontra itens que batem com o email (compara em lowercase e trim)
+      const matchedItems = (data.value || []).filter((item: any) => {
+          const f = item.fields;
+          // Procura o email em campos comuns (Email, email, Title, etc)
+          const foundEmail = (f.Email || f.email || f.email_x0020_ || f.Title || "").toLowerCase().trim();
+          return foundEmail === searchEmail;
+      });
       
-      return (data.value || []).map((item: any) => {
-          // Tenta pegar de colNome (Nome), senão tenta 'Title' diretamente
-          return item.fields[colNome] || item.fields['Title'] || "";
+      return matchedItems.map((item: any) => {
+          const f = item.fields;
+          // Tenta pegar o nome da coluna Title (que é o padrão) ou LinkTitle ou Nome
+          return f.Title || f.Nome || f.LinkTitle || f.NomeUsuario || "";
       }).filter(Boolean);
     } catch (e) { 
-      console.error("Erro em getRegisteredUsers:", e);
+      console.error("Erro crítico em getRegisteredUsers:", e);
       return []; 
     }
   },
