@@ -309,24 +309,33 @@ export const SharePointService = {
       const siteId = await getResolvedSiteId(token);
       const list = await findListByIdOrName(siteId, 'Usuarios_cco', token);
       
-      // ABORDAGEM INFALÍVEL: Pega todos e filtra localmente. 
-      // Isso resolve qualquer problema de indexação de coluna ou sintaxe de filtro do Graph.
+      // ABORDAGEM INFALÍVEL: Pega todos os itens sem filtro OData
       const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$top=999`, token);
       
       const searchEmail = email.toLowerCase().trim();
       
-      // Encontra itens que batem com o email (compara em lowercase e trim)
+      // Filtra localmente verificando TODOS os campos de texto da linha
       const matchedItems = (data.value || []).filter((item: any) => {
-          const f = item.fields;
-          // Procura o email em campos comuns (Email, email, Title, etc)
-          const foundEmail = (f.Email || f.email || f.email_x0020_ || f.Title || "").toLowerCase().trim();
-          return foundEmail === searchEmail;
+          const f = item.fields || {};
+          // Se qualquer valor de qualquer coluna for exatamente o e-mail que buscamos, temos um match.
+          return Object.values(f).some(val => 
+              typeof val === 'string' && val.toLowerCase().trim() === searchEmail
+          );
       });
       
       return matchedItems.map((item: any) => {
-          const f = item.fields;
-          // Tenta pegar o nome da coluna Title (que é o padrão) ou LinkTitle ou Nome
-          return f.Title || f.Nome || f.LinkTitle || f.NomeUsuario || "";
+          const f = item.fields || {};
+          // Ao encontrar o registro pelo e-mail, precisamos extrair o nome.
+          // Priorizamos colunas comuns. Se não houver, pegamos qualquer campo que NÃO seja o e-mail.
+          if (f.Nome && f.Nome.toLowerCase().trim() !== searchEmail) return f.Nome;
+          if (f.Title && f.Title.toLowerCase().trim() !== searchEmail) return f.Title;
+          if (f.LinkTitle && f.LinkTitle.toLowerCase().trim() !== searchEmail) return f.LinkTitle;
+          
+          const anyOtherStringField = Object.entries(f).find(([key, val]) => 
+              typeof val === 'string' && val.toLowerCase().trim() !== searchEmail && !key.startsWith('@') && !['id', 'odata.etag'].includes(key)
+          );
+          
+          return anyOtherStringField ? (anyOtherStringField[1] as string) : "Usuário Identificado";
       }).filter(Boolean);
     } catch (e) { 
       console.error("Erro crítico em getRegisteredUsers:", e);
