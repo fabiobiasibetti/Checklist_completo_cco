@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { HashRouter as Router, Routes, Route, useNavigate } from 'react-router-dom';
-import { CheckSquare, History, Truck, Moon, Sun, LogOut, ChevronLeft, ChevronRight, Loader2, Search } from 'lucide-react';
+import { CheckSquare, History, Truck, Moon, Sun, LogOut, ChevronLeft, ChevronRight, Loader2, Search, AlertCircle } from 'lucide-react';
 import TaskManager from './components/TaskManager';
 import HistoryViewer from './components/HistoryViewer';
 import RouteDepartureView from './components/RouteDeparture';
@@ -26,6 +26,7 @@ const AppContent = () => {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [collapsed, setCollapsed] = useState(true);
   const [collapsedCategories, setCollapsedCategories] = useState<string[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
   
   const navigate = useNavigate();
 
@@ -33,10 +34,17 @@ const AppContent = () => {
     if (!user.accessToken) return;
     (window as any).__access_token = user.accessToken; 
     setIsLoading(true);
+    setLoadError(null);
     try {
       const spTasks = await SharePointService.getTasks(user.accessToken);
       const spOps = await SharePointService.getOperations(user.accessToken, user.email);
       
+      if (spOps.length === 0) {
+        setLoadError(`Não encontramos nenhuma operação para o e-mail: ${user.email}. Verifique a lista 'Operacoes_Checklist' no SharePoint.`);
+        setIsLoading(false);
+        return;
+      }
+
       // GARANTIA DE MATRIZ: Se houver tarefas ou operações novas, cria registros no SP
       await SharePointService.ensureStatusMatrix(user.accessToken, spTasks, spOps);
       
@@ -67,8 +75,9 @@ const AppContent = () => {
       });
 
       setTasks(matrixTasks.filter(t => t.active !== false));
-    } catch (err) {
+    } catch (err: any) {
       console.error("Erro ao carregar SharePoint:", err);
+      setLoadError(`Erro crítico: ${err.message}`);
     } finally {
       setIsLoading(false);
     }
@@ -114,7 +123,16 @@ const AppContent = () => {
         {isLoading ? (
           <div className="h-full flex items-center justify-center flex-col gap-4 text-blue-600">
              <Loader2 size={40} className="animate-spin" />
-             <p className="font-bold animate-pulse">Otimizando Matriz de Dados...</p>
+             <p className="font-bold animate-pulse">Sincronizando Matriz SharePoint...</p>
+          </div>
+        ) : loadError ? (
+          <div className="h-full flex flex-col items-center justify-center p-8 text-center max-w-2xl mx-auto">
+             <AlertCircle size={64} className="text-red-500 mb-4" />
+             <h2 className="text-2xl font-black text-slate-800 dark:text-white mb-2 uppercase">Falha na Inicialização</h2>
+             <p className="text-slate-500 dark:text-slate-400 mb-8">{loadError}</p>
+             <button onClick={() => loadDataFromSharePoint(currentUser)} className="px-6 py-3 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all flex items-center gap-2 shadow-lg">
+                <CheckSquare size={20} /> Tentar Novamente
+             </button>
           </div>
         ) : (
           <Routes>
