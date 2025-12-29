@@ -97,7 +97,8 @@ async function getListColumnMapping(siteId: string, listId: string, token: strin
     mapping[normalizedDisplay] = internalName;
     internalNames.add(internalName);
 
-    if (col.readOnly || internalName.startsWith('_') || ['LinkTitle', 'LinkTitleNoMenu', 'ID', 'Author', 'Editor', 'Created', 'Modified', 'Attachments'].includes(internalName)) {
+    // LinkTitle e outros campos de sistema são marcados como ReadOnly para evitar erros 400
+    if (col.readOnly || internalName.startsWith('_') || ['LinkTitle', 'LinkTitleNoMenu', 'ID', 'Author', 'Editor', 'Created', 'Modified', 'Attachments', 'ComplianceAssetId'].includes(internalName)) {
       readOnly.add(internalName);
     }
   });
@@ -152,9 +153,8 @@ export const SharePointService = {
     try {
         const siteId = await getResolvedSiteId(token);
         const list = await findListByIdOrName(siteId, 'Status_Checklist', token);
-        const { mapping, internalNames } = await getListColumnMapping(siteId, list.id, token);
+        const { mapping } = await getListColumnMapping(siteId, list.id, token);
         
-        // Filtro robusto para DataReferencia
         const colData = resolveFieldName(mapping, 'DataReferencia');
         const filter = `fields/${colData} ge '${date}T00:00:00Z' and fields/${colData} le '${date}T23:59:59Z'`;
         
@@ -163,15 +163,12 @@ export const SharePointService = {
         return (data.value || []).map((item: any) => {
           const fields = item.fields;
           const title = fields.Title || "";
-          
-          // Lógica de extração do TarefaID a partir do Título (formato: YYYYMMDD_ID_SIGLA)
-          // Se a coluna TarefaID existir, usamos ela. Caso contrário, quebramos o Título.
           const colTarefaId = resolveFieldName(mapping, 'TarefaID');
           let tarefaId = fields[colTarefaId];
           
           if (!tarefaId && title.includes('_')) {
               const parts = title.split('_');
-              if (parts.length >= 2) tarefaId = parts[1]; // O ID da tarefa é a segunda parte
+              if (parts.length >= 2) tarefaId = parts[1];
           }
 
           return {
@@ -185,7 +182,6 @@ export const SharePointService = {
           };
         });
     } catch (e) { 
-        console.error("Erro ao ler status do dia:", e);
         return []; 
     }
   },
@@ -197,7 +193,7 @@ export const SharePointService = {
 
     const rawFields: Record<string, any> = {
       Title: status.Title,
-      DataReferencia: status.DataReferencia,
+      DataReferencia: new Date(status.DataReferencia + 'T12:00:00Z').toISOString().split('.')[0] + 'Z',
       TarefaID: status.TarefaID, 
       OperacaoSigla: status.OperacaoSigla,
       Status: status.Status,
@@ -244,9 +240,12 @@ export const SharePointService = {
     const list = await findListByIdOrName(siteId, 'Historico_checklist_web', token);
     const { mapping, readOnly, internalNames } = await getListColumnMapping(siteId, list.id, token);
 
+    // Limpeza de Data para formato estrito ISO do SharePoint
+    const cleanDate = new Date(record.timestamp).toISOString().split('.')[0] + 'Z';
+
     const rawFields: any = {
-      Title: record.resetBy, 
-      Data: record.timestamp,
+      Title: record.resetBy || 'Reset', 
+      Data: cleanDate,
       DadosJSON: JSON.stringify(record.tasks),
       Celula: record.email
     };
@@ -255,16 +254,24 @@ export const SharePointService = {
     Object.keys(rawFields).forEach(key => {
         const internalName = resolveFieldName(mapping, key);
         if (internalNames.has(internalName)) {
+            // Se for o campo Title ou não for ReadOnly, envia
             if (!readOnly.has(internalName) || internalName === 'Title') {
                 fields[internalName] = rawFields[key];
             }
         }
     });
 
-    await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
-      method: 'POST',
-      body: JSON.stringify({ fields })
-    });
+    try {
+        await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
+          method: 'POST',
+          body: JSON.stringify({ fields })
+        });
+    } catch (error: any) {
+        if (error.message.includes("400") || error.message.includes("Invalid request")) {
+            throw new Error("Erro 400: Provavelmente a coluna 'DadosJSON' excedeu o limite de 255 caracteres. Por favor, altere o tipo da coluna no SharePoint para 'Várias linhas de texto'.");
+        }
+        throw error;
+    }
   },
 
   async getHistory(token: string, userEmail: string): Promise<HistoryRecord[]> {
@@ -289,13 +296,10 @@ export const SharePointService = {
       const siteId = await getResolvedSiteId(token);
       const list = await findListByIdOrName(siteId, 'Usuarios_cco', token);
       const { mapping } = await getListColumnMapping(siteId, list.id, token);
-      
       const colEmail = resolveFieldName(mapping, 'Email');
       const colNome = resolveFieldName(mapping, 'Nome');
-      
       const filter = `fields/${colEmail} eq '${email}'`;
       const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
-      
       return (data.value || []).map((item: any) => item.fields[colNome] || "").filter(Boolean);
     } catch (e) {
       return [];
