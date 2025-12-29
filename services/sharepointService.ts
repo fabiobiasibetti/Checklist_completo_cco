@@ -308,28 +308,30 @@ export const SharePointService = {
   async getRegisteredUsers(token: string, _email: string): Promise<string[]> {
     try {
       const siteId = await getResolvedSiteId(token);
-      const list = await findListByIdOrName(siteId, 'Usuarios_cco', token);
+      // NOME DA LISTA CORRIGIDO CONFORME SCREENSHOT
+      const list = await findListByIdOrName(siteId, 'Usuarios_checklist_cco', token);
+      const { mapping } = await getListColumnMapping(siteId, list.id, token);
       
-      // Busca TODOS os itens sem qualquer filtro OData para máxima resiliência
       const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$top=999`, token);
       
       const results: string[] = [];
       const items = data.value || [];
 
+      // Mapeia especificamente a coluna Nome informada pelo usuário
+      const colNome = resolveFieldName(mapping, 'Nome');
+
       items.forEach((item: any) => {
         const f = item.fields || {};
         
-        // Prioridade de colunas para o Nome do usuário
-        // Tentamos primeiro as colunas padrão do SharePoint, depois fallbacks de texto
-        let name = f.Nome || f.LinkTitle || f.Title || "";
+        // Prioridade de leitura para o Nome
+        let name = f[colNome] || f.Nome || f.LinkTitle || f.Title || "";
 
-        // Se por algum motivo as colunas acima vierem vazias, varremos todos os campos de texto
-        // para achar algo que pareça um nome (ignorando IDs e campos de sistema)
         if (!name || (typeof name === 'string' && name.trim().length === 0)) {
+           // Fallback para qualquer campo de texto que não seja email
            const anyTextField = Object.entries(f).find(([key, val]) => {
               if (typeof val !== 'string' || key.startsWith('@') || key === 'id' || key === 'ContentType') return false;
               const valTrim = val.trim();
-              return valTrim.length > 2 && !valTrim.includes('@'); // Evita pegar e-mails como nome
+              return valTrim.length > 2 && !valTrim.includes('@');
            });
            if (anyTextField) name = String(anyTextField[1]);
         }
@@ -339,13 +341,8 @@ export const SharePointService = {
         }
       });
 
-      // Se mesmo assim não achamos nada, mas existem itens, usamos o ID como último recurso
-      if (results.length === 0 && items.length > 0) {
-          items.forEach((item: any) => results.push(`Usuário ID: ${item.id}`));
-      }
-
       const finalResults = Array.from(new Set(results)).sort((a, b) => a.localeCompare(b));
-      console.log(`[AUTH] Carregados ${finalResults.length} usuários da lista.`);
+      console.log(`[AUTH] Carregados ${finalResults.length} usuários da lista Usuarios_checklist_cco.`);
       return finalResults;
     } catch (e) { 
       console.error("Erro crítico em getRegisteredUsers:", e);
@@ -354,7 +351,8 @@ export const SharePointService = {
   },
 
   async getAllListsMetadata(token: string) {
-    const listNames = ['Tarefas_Checklist', 'Operacoes_Checklist', 'Status_Checklist', 'Historico_checklist_web', 'Usuarios_cco'];
+    // NOMES DAS LISTAS ATUALIZADOS
+    const listNames = ['Tarefas_Checklist', 'Operacoes_Checklist', 'Status_Checklist', 'Historico_checklist_web', 'Usuarios_checklist_cco'];
     return Promise.all(listNames.map(async name => {
       try {
         const siteId = await getResolvedSiteId(token);
