@@ -3,7 +3,7 @@ import { SPTask, SPOperation, SPStatus, Task, OperationStatus, HistoryRecord } f
 
 const SITE_PATH = "vialacteoscombr.sharepoint.com:/sites/CCO";
 let cachedSiteId: string | null = null;
-const columnMappingCache: Record<string, { mapping: Record<string, string>, readOnly: Set<string> }> = {};
+const columnMappingCache: Record<string, { mapping: Record<string, string>, readOnly: Set<string>, internalNames: Set<string> }> = {};
 
 async function graphFetch(endpoint: string, token: string, options: RequestInit = {}) {
   const url = endpoint.startsWith('https://') ? endpoint : `https://graph.microsoft.com/v1.0${endpoint}`;
@@ -11,7 +11,6 @@ async function graphFetch(endpoint: string, token: string, options: RequestInit 
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${token}`,
     'Content-Type': 'application/json',
-    // Formato consolidado de Prefer conforme documentação oficial para evitar erros de indexação
     'Prefer': 'HonorNonIndexedQueriesWarningMayFailOverLargeLists,HonorNonIndexedQueriesWarningMayFailRandomly'
   };
 
@@ -32,14 +31,12 @@ async function graphFetch(endpoint: string, token: string, options: RequestInit 
       errDetail = await res.text();
     }
     
-    // Log detalhado para depuração no console do navegador
     console.warn(`Graph API Response [${res.status}]: ${errDetail}`);
     
     if (res.status === 403) {
-      throw new Error("Acesso Negado (403): O SharePoint bloqueou a gravação. Verifique as permissões de EDIÇÃO no site.");
+      throw new Error("Acesso Negado (403): Verifique as permissões de EDIÇÃO no site CCO.");
     }
     
-    // Se for erro de indexação (400 Bad Request com mensagem de index), repassamos para o catch específico
     const isIndexingError = errDetail.toLowerCase().includes("indexed") || errDetail.toLowerCase().includes("filter");
     if (res.status === 400 && isIndexingError) {
         const error = new Error(errDetail);
@@ -89,6 +86,7 @@ async function getListColumnMapping(siteId: string, listId: string, token: strin
   const columns = await graphFetch(`/sites/${siteId}/lists/${listId}/columns`, token);
   const mapping: Record<string, string> = {};
   const readOnly = new Set<string>();
+  const internalNames = new Set<string>();
   
   columns.value.forEach((col: any) => {
     const internalName = col.name;
@@ -97,13 +95,14 @@ async function getListColumnMapping(siteId: string, listId: string, token: strin
     
     mapping[normalizedName] = internalName;
     mapping[normalizedDisplay] = internalName;
+    internalNames.add(internalName);
 
     if (col.readOnly || internalName.startsWith('_') || ['LinkTitle', 'LinkTitleNoMenu', 'ID', 'Author', 'Editor', 'Created', 'Modified', 'Attachments'].includes(internalName)) {
       readOnly.add(internalName);
     }
   });
 
-  columnMappingCache[cacheKey] = { mapping, readOnly };
+  columnMappingCache[cacheKey] = { mapping, readOnly, internalNames };
   return columnMappingCache[cacheKey];
 }
 
@@ -170,29 +169,36 @@ export const SharePointService = {
   async updateStatus(token: string, status: SPStatus): Promise<void> {
     const siteId = await getResolvedSiteId(token);
     const list = await findListByIdOrName(siteId, 'Status_Checklist', token);
-    const { mapping, readOnly } = await getListColumnMapping(siteId, list.id, token);
+    const { mapping, readOnly, internalNames } = await getListColumnMapping(siteId, list.id, token);
 
+    // Mapeamos os dados que temos para os campos que podem existir
     const rawFields: Record<string, any> = {
       Title: status.Title,
       DataReferencia: status.DataReferencia,
-      TarefaID: status.TarefaID,
+      // Se TarefaID não existe como InternalName, ele será ignorado no loop abaixo
+      TarefaID: status.TarefaID, 
       OperacaoSigla: status.OperacaoSigla,
       Status: status.Status,
       Usuario: status.Usuario,
-      ChaveUnica: status.Title // Espelhamos o ID único também na coluna ChaveUnica se existir
+      ChaveUnica: status.Title
     };
 
     const fields: Record<string, any> = {};
     Object.keys(rawFields).forEach(key => {
       const internalName = resolveFieldName(mapping, key);
-      if (!readOnly.has(internalName) || internalName === 'Title') {
-        fields[internalName] = rawFields[key];
+      
+      // CRUCIAL: Só envia se o nome interno REALMENTE existir na lista do SharePoint
+      // E não for uma coluna protegida de sistema (exceto Title)
+      if (internalNames.has(internalName)) {
+          if (!readOnly.has(internalName) || internalName === 'Title') {
+            fields[internalName] = rawFields[key];
+          }
+      } else {
+          console.log(`Pulando campo inexistente no SharePoint: ${key} (Internal: ${internalName})`);
       }
     });
 
     try {
-        // Tenta buscar item existente para atualizar (PATCH)
-        // Se a lista estiver vazia ou a coluna Title não for indexada, isso PODE falhar.
         const filter = `fields/Title eq '${status.Title}'`;
         const existing = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
         
@@ -203,32 +209,24 @@ export const SharePointService = {
             body: JSON.stringify(fields)
           });
         } else {
-          // Se não encontrar, cria novo (POST)
           await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
             method: 'POST',
             body: JSON.stringify({ fields })
           });
         }
     } catch (e: any) {
-        // Se cair aqui, pode ser erro de indexação (lista vazia/nova)
-        // Tentamos o POST direto como "última esperança"
-        console.warn("Busca falhou ou erro de indexação. Tentando POST direto...");
-        try {
-            await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
-              method: 'POST',
-              body: JSON.stringify({ fields })
-            });
-        } catch (postErr: any) {
-            console.error("Falha final no POST:", postErr.message);
-            throw postErr;
-        }
+        console.warn("Tentando POST direto após erro de consulta...");
+        await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
+          method: 'POST',
+          body: JSON.stringify({ fields })
+        });
     }
   },
 
   async saveHistory(token: string, record: HistoryRecord): Promise<void> {
     const siteId = await getResolvedSiteId(token);
     const list = await findListByIdOrName(siteId, 'Historico_checklist_web', token);
-    const { mapping, readOnly } = await getListColumnMapping(siteId, list.id, token);
+    const { mapping, readOnly, internalNames } = await getListColumnMapping(siteId, list.id, token);
 
     const rawFields: any = {
       Title: record.resetBy, 
@@ -240,19 +238,17 @@ export const SharePointService = {
     const fields: any = {};
     Object.keys(rawFields).forEach(key => {
         const internalName = resolveFieldName(mapping, key);
-        if (!readOnly.has(internalName) || internalName === 'Title') {
-            fields[internalName] = rawFields[key];
+        if (internalNames.has(internalName)) {
+            if (!readOnly.has(internalName) || internalName === 'Title') {
+                fields[internalName] = rawFields[key];
+            }
         }
     });
 
-    try {
-        await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
-          method: 'POST',
-          body: JSON.stringify({ fields })
-        });
-    } catch (error: any) {
-        throw new Error(`Erro ao gravar no Histórico: ${error.message}`);
-    }
+    await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
+      method: 'POST',
+      body: JSON.stringify({ fields })
+    });
   },
 
   async getHistory(token: string, userEmail: string): Promise<HistoryRecord[]> {
@@ -291,27 +287,16 @@ export const SharePointService = {
   },
 
   async getAllListsMetadata(token: string) {
-    const listNames = [
-      'Tarefas_Checklist',
-      'Operacoes_Checklist',
-      'Status_Checklist',
-      'Historico_checklist_web',
-      'Usuarios_cco'
-    ];
-    
-    const results = await Promise.all(listNames.map(async name => {
+    const listNames = ['Tarefas_Checklist', 'Operacoes_Checklist', 'Status_Checklist', 'Historico_checklist_web', 'Usuarios_cco'];
+    return Promise.all(listNames.map(async name => {
       try {
         const siteId = await getResolvedSiteId(token);
         const list = await findListByIdOrName(siteId, name, token);
         const columns = await graphFetch(`/sites/${siteId}/lists/${list.id}/columns`, token);
-        return {
-          list,
-          columns: columns.value || []
-        };
+        return { list, columns: columns.value || [] };
       } catch (e) {
         return { list: { displayName: name, id: 'error' }, columns: [], error: true };
       }
     }));
-    return results;
   }
 };
