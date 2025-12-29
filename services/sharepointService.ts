@@ -129,7 +129,6 @@ export const SharePointService = {
         const { mapping } = await getListColumnMapping(siteId, list.id, token);
         const colEmail = resolveFieldName(mapping, 'Email');
         
-        // REMOVIDO FILTRO POR EMAIL: Retorna todas as operações cadastradas
         const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields`, token);
         
         return (data.value || [])
@@ -310,29 +309,43 @@ export const SharePointService = {
     try {
       const siteId = await getResolvedSiteId(token);
       const list = await findListByIdOrName(siteId, 'Usuarios_cco', token);
-      const { mapping } = await getListColumnMapping(siteId, list.id, token);
       
-      const colNome = resolveFieldName(mapping, 'Nome');
-      const colTitle = resolveFieldName(mapping, 'Title');
-
-      // PEGA TODOS OS USUÁRIOS: Sem filtro por email
+      // Busca TODOS os itens sem qualquer filtro OData para máxima resiliência
       const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$top=999`, token);
       
       const results: string[] = [];
-      (data.value || []).forEach((item: any) => {
+      const items = data.value || [];
+
+      items.forEach((item: any) => {
         const f = item.fields || {};
         
-        // Extrai o nome das colunas prováveis
-        let name = f[colNome] || f['LinkTitle'] || f['Nome'] || f[colTitle] || f['Title'] || "";
-        
+        // Prioridade de colunas para o Nome do usuário
+        // Tentamos primeiro as colunas padrão do SharePoint, depois fallbacks de texto
+        let name = f.Nome || f.LinkTitle || f.Title || "";
+
+        // Se por algum motivo as colunas acima vierem vazias, varremos todos os campos de texto
+        // para achar algo que pareça um nome (ignorando IDs e campos de sistema)
+        if (!name || (typeof name === 'string' && name.trim().length === 0)) {
+           const anyTextField = Object.entries(f).find(([key, val]) => {
+              if (typeof val !== 'string' || key.startsWith('@') || key === 'id' || key === 'ContentType') return false;
+              const valTrim = val.trim();
+              return valTrim.length > 2 && !valTrim.includes('@'); // Evita pegar e-mails como nome
+           });
+           if (anyTextField) name = String(anyTextField[1]);
+        }
+
         if (name && typeof name === 'string' && name.trim()) {
             results.push(name.trim());
         }
       });
 
-      // Retorna lista única e ordenada alfabeticamente
+      // Se mesmo assim não achamos nada, mas existem itens, usamos o ID como último recurso
+      if (results.length === 0 && items.length > 0) {
+          items.forEach((item: any) => results.push(`Usuário ID: ${item.id}`));
+      }
+
       const finalResults = Array.from(new Set(results)).sort((a, b) => a.localeCompare(b));
-      console.log(`[AUTH] Carregados ${finalResults.length} usuários para seleção de reset.`);
+      console.log(`[AUTH] Carregados ${finalResults.length} usuários da lista.`);
       return finalResults;
     } catch (e) { 
       console.error("Erro crítico em getRegisteredUsers:", e);

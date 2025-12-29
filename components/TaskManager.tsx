@@ -396,9 +396,9 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                             ) : (
                                 <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-xl text-red-600 dark:text-red-400 text-xs flex flex-col gap-2">
                                     <div className="flex items-center gap-2 font-bold uppercase">
-                                        <AlertCircle size={16} /> Usuário não autorizado
+                                        <AlertCircle size={16} /> Dados não encontrados
                                     </div>
-                                    <p className="opacity-80">Nenhum nome encontrado para o e-mail: <b>{currentUser.email}</b> na lista 'Usuarios_cco'.</p>
+                                    <p className="opacity-80">Não foi possível carregar a lista de usuários da tabela 'Usuarios_cco'. Verifique se existem registros no SharePoint.</p>
                                 </div>
                             )}
                             {!isLoadingUsers && registeredUsers.length > 0 && (
