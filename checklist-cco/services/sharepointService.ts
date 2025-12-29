@@ -152,18 +152,42 @@ export const SharePointService = {
     try {
         const siteId = await getResolvedSiteId(token);
         const list = await findListByIdOrName(siteId, 'Status_Checklist', token);
-        const filter = `fields/DataReferencia eq '${date}'`;
+        const { mapping, internalNames } = await getListColumnMapping(siteId, list.id, token);
+        
+        // Filtro robusto para DataReferencia
+        const colData = resolveFieldName(mapping, 'DataReferencia');
+        const filter = `fields/${colData} ge '${date}T00:00:00Z' and fields/${colData} le '${date}T23:59:59Z'`;
+        
         const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
-        return (data.value || []).map((item: any) => ({
-          id: item.id,
-          DataReferencia: item.fields.DataReferencia,
-          TarefaID: String(item.fields.TarefaID || item.fields.Title),
-          OperacaoSigla: item.fields.OperacaoSigla,
-          Status: item.fields.Status,
-          Usuario: item.fields.Usuario,
-          Title: item.fields.Title
-        }));
-    } catch (e) { return []; }
+        
+        return (data.value || []).map((item: any) => {
+          const fields = item.fields;
+          const title = fields.Title || "";
+          
+          // Lógica de extração do TarefaID a partir do Título (formato: YYYYMMDD_ID_SIGLA)
+          // Se a coluna TarefaID existir, usamos ela. Caso contrário, quebramos o Título.
+          const colTarefaId = resolveFieldName(mapping, 'TarefaID');
+          let tarefaId = fields[colTarefaId];
+          
+          if (!tarefaId && title.includes('_')) {
+              const parts = title.split('_');
+              if (parts.length >= 2) tarefaId = parts[1]; // O ID da tarefa é a segunda parte
+          }
+
+          return {
+            id: item.id,
+            DataReferencia: fields[colData],
+            TarefaID: String(tarefaId || title),
+            OperacaoSigla: fields[resolveFieldName(mapping, 'OperacaoSigla')],
+            Status: fields[resolveFieldName(mapping, 'Status')],
+            Usuario: fields[resolveFieldName(mapping, 'Usuario')],
+            Title: title
+          };
+        });
+    } catch (e) { 
+        console.error("Erro ao ler status do dia:", e);
+        return []; 
+    }
   },
 
   async updateStatus(token: string, status: SPStatus): Promise<void> {
@@ -171,11 +195,9 @@ export const SharePointService = {
     const list = await findListByIdOrName(siteId, 'Status_Checklist', token);
     const { mapping, readOnly, internalNames } = await getListColumnMapping(siteId, list.id, token);
 
-    // Mapeamos os dados que temos para os campos que podem existir
     const rawFields: Record<string, any> = {
       Title: status.Title,
       DataReferencia: status.DataReferencia,
-      // Se TarefaID não existe como InternalName, ele será ignorado no loop abaixo
       TarefaID: status.TarefaID, 
       OperacaoSigla: status.OperacaoSigla,
       Status: status.Status,
@@ -186,15 +208,10 @@ export const SharePointService = {
     const fields: Record<string, any> = {};
     Object.keys(rawFields).forEach(key => {
       const internalName = resolveFieldName(mapping, key);
-      
-      // CRUCIAL: Só envia se o nome interno REALMENTE existir na lista do SharePoint
-      // E não for uma coluna protegida de sistema (exceto Title)
       if (internalNames.has(internalName)) {
           if (!readOnly.has(internalName) || internalName === 'Title') {
             fields[internalName] = rawFields[key];
           }
-      } else {
-          console.log(`Pulando campo inexistente no SharePoint: ${key} (Internal: ${internalName})`);
       }
     });
 
@@ -215,7 +232,6 @@ export const SharePointService = {
           });
         }
     } catch (e: any) {
-        console.warn("Tentando POST direto após erro de consulta...");
         await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
           method: 'POST',
           body: JSON.stringify({ fields })
