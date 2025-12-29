@@ -36,11 +36,15 @@ const AppContent = () => {
     try {
       const spTasks = await SharePointService.getTasks(user.accessToken);
       const spOps = await SharePointService.getOperations(user.accessToken, user.email);
-      const today = new Date().toISOString().split('T')[0];
-      const spStatus = await SharePointService.getStatusByDate(user.accessToken, today);
-
+      
+      // GARANTIA DE MATRIZ: Se houver tarefas ou operações novas, cria registros no SP
+      await SharePointService.ensureStatusMatrix(user.accessToken, spTasks, spOps);
+      
       const opSiglas = spOps.map(o => o.Title);
       setLocations(opSiglas);
+
+      // Pega o estado ATUAL da matriz persistente
+      const spStatus = await SharePointService.getCurrentStatusMatrix(user.accessToken, opSiglas);
 
       const matrixTasks: Task[] = spTasks.map(t => {
         const ops: Record<string, any> = {};
@@ -110,7 +114,7 @@ const AppContent = () => {
         {isLoading ? (
           <div className="h-full flex items-center justify-center flex-col gap-4 text-blue-600">
              <Loader2 size={40} className="animate-spin" />
-             <p className="font-bold animate-pulse">Sincronizando com SharePoint...</p>
+             <p className="font-bold animate-pulse">Otimizando Matriz de Dados...</p>
           </div>
         ) : (
           <Routes>
