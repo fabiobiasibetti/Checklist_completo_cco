@@ -308,55 +308,59 @@ export const SharePointService = {
     try {
       const siteId = await getResolvedSiteId(token);
       const list = await findListByIdOrName(siteId, 'Usuarios_cco', token);
-      const { mapping } = await getListColumnMapping(siteId, list.id, token);
       
       const searchEmail = email.toLowerCase().trim();
       
-      // Mapeia colunas prováveis baseando-se no que o usuário nos passou
-      const colEmail = resolveFieldName(mapping, 'Email');
-      const colNome = resolveFieldName(mapping, 'Nome'); // Geralmente LinkTitle no mapeamento
-      const colTitle = resolveFieldName(mapping, 'Title');
-
-      // Pega todos os itens (cache local para filtro agressivo)
+      // Conforme os dados fornecidos pelo usuário:
+      // Email -> InternalName: Email
+      // Nome -> InternalName: LinkTitle
+      // Titulo -> InternalName: Title
+      
+      // Pega todos os itens da lista
       const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$top=999`, token);
       
       const results: string[] = [];
       (data.value || []).forEach((item: any) => {
         const f = item.fields || {};
         
-        // Verificação 1: Pelo campo mapeado de e-mail
-        const directEmail = String(f[colEmail] || f['Email'] || f['email'] || "").toLowerCase().trim();
+        // Tentamos o match exato na coluna 'Email' (InternalName: Email)
+        const itemEmail = String(f.Email || "").toLowerCase().trim();
         
-        // Verificação 2: Brute force (se o e-mail está em qualquer campo)
-        const bruteMatch = Object.entries(f).some(([key, val]) => {
-            if (typeof val !== 'string' || key.startsWith('@')) return false;
-            return val.toLowerCase().trim() === searchEmail;
-        });
+        // Verificação redundante caso a coluna não venha como 'Email' na resposta do Graph
+        let isMatch = itemEmail === searchEmail;
+        
+        if (!isMatch) {
+            // Busca o e-mail em qualquer propriedade da linha (fallback)
+            isMatch = Object.entries(f).some(([key, val]) => {
+                if (typeof val !== 'string' || key.startsWith('@')) return false;
+                return val.toLowerCase().trim() === searchEmail;
+            });
+        }
 
-        if (directEmail === searchEmail || bruteMatch) {
-           // Prioridade para extrair o nome: Nome -> LinkTitle -> Title -> any string that isn't email
-           let name = f[colNome] || f['LinkTitle'] || f['Nome'] || f[colTitle] || f['Title'] || "";
+        if (isMatch) {
+           // Conforme o mapeamento do usuário: Nome é 'LinkTitle'
+           let name = f.LinkTitle || f.Nome || f.Title || "";
            
+           // Se o nome extraído for igual ao e-mail, tentamos outro campo
            if (!name || (typeof name === 'string' && name.toLowerCase().trim() === searchEmail)) {
-               // Fallback final: Pega o primeiro campo de texto que não seja o e-mail
-               const fallbackField = Object.entries(f).find(([k, v]) => 
+               const otherField = Object.entries(f).find(([k, v]) => 
                    typeof v === 'string' && 
                    v.toLowerCase().trim() !== searchEmail && 
                    !k.startsWith('@') && 
                    !['id', 'ContentType', 'odata.etag'].includes(k)
                );
-               if (fallbackField) name = String(fallbackField[1]);
+               if (otherField) name = String(otherField[1]);
            }
 
-           if (name && typeof name === 'string') {
-               results.push(name.trim());
+           if (name) {
+               results.push(String(name).trim());
            }
         }
       });
 
-      const uniqueResults = Array.from(new Set(results));
-      console.log(`[RegisteredUsers] Encontrados para ${email}:`, uniqueResults);
-      return uniqueResults;
+      const finalResults = Array.from(new Set(results));
+      console.log(`[AUTH] Verificando acesso para ${email}. Encontrado:`, finalResults);
+      return finalResults;
     } catch (e) { 
       console.error("Erro crítico em getRegisteredUsers:", e);
       return []; 
