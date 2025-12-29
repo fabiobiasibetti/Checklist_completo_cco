@@ -8,13 +8,18 @@ const columnMappingCache: Record<string, { mapping: Record<string, string>, read
 async function graphFetch(endpoint: string, token: string, options: RequestInit = {}) {
   const url = endpoint.startsWith('https://') ? endpoint : `https://graph.microsoft.com/v1.0${endpoint}`;
   
+  const headers: Record<string, string> = {
+    'Authorization': `Bearer ${token}`,
+    'Content-Type': 'application/json',
+    // Formato consolidado de Prefer conforme documentação oficial para evitar erros de indexação
+    'Prefer': 'HonorNonIndexedQueriesWarningMayFailOverLargeLists,HonorNonIndexedQueriesWarningMayFailRandomly'
+  };
+
   const res = await fetch(url, {
     ...options,
     headers: {
-      ...options.headers,
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      'Prefer': 'HonorNonIndexedQueriesWarningMayFailOverLargeLists'
+      ...headers,
+      ...options.headers
     }
   });
 
@@ -26,11 +31,22 @@ async function graphFetch(endpoint: string, token: string, options: RequestInit 
     } catch(e) {
       errDetail = await res.text();
     }
-    console.error(`Graph API Error [${res.status}]:`, errDetail);
+    
+    // Log detalhado para depuração no console do navegador
+    console.warn(`Graph API Response [${res.status}]: ${errDetail}`);
     
     if (res.status === 403) {
-      throw new Error("Acesso Negado (403): O SharePoint bloqueou a gravação. Verifique se o usuário tem permissão de 'EDIÇÃO' no site CCO ou se há colunas protegidas.");
+      throw new Error("Acesso Negado (403): O SharePoint bloqueou a gravação. Verifique as permissões de EDIÇÃO no site.");
     }
+    
+    // Se for erro de indexação (400 Bad Request com mensagem de index), repassamos para o catch específico
+    const isIndexingError = errDetail.toLowerCase().includes("indexed") || errDetail.toLowerCase().includes("filter");
+    if (res.status === 400 && isIndexingError) {
+        const error = new Error(errDetail);
+        (error as any).isIndexingError = true;
+        throw error;
+    }
+
     throw new Error(errDetail);
   }
   return res.status === 204 ? null : res.json();
@@ -82,7 +98,6 @@ async function getListColumnMapping(siteId: string, listId: string, token: strin
     mapping[normalizedName] = internalName;
     mapping[normalizedDisplay] = internalName;
 
-    // Colunas que o Graph não deixa editar
     if (col.readOnly || internalName.startsWith('_') || ['LinkTitle', 'LinkTitleNoMenu', 'ID', 'Author', 'Editor', 'Created', 'Modified', 'Attachments'].includes(internalName)) {
       readOnly.add(internalName);
     }
@@ -143,7 +158,7 @@ export const SharePointService = {
         return (data.value || []).map((item: any) => ({
           id: item.id,
           DataReferencia: item.fields.DataReferencia,
-          TarefaID: String(item.fields.TarefaID || item.fields.Title), // Fallback se TarefaID estiver vazio
+          TarefaID: String(item.fields.TarefaID || item.fields.Title),
           OperacaoSigla: item.fields.OperacaoSigla,
           Status: item.fields.Status,
           Usuario: item.fields.Usuario,
@@ -157,29 +172,27 @@ export const SharePointService = {
     const list = await findListByIdOrName(siteId, 'Status_Checklist', token);
     const { mapping, readOnly } = await getListColumnMapping(siteId, list.id, token);
 
-    // Campos que queremos enviar
     const rawFields: Record<string, any> = {
       Title: status.Title,
       DataReferencia: status.DataReferencia,
       TarefaID: status.TarefaID,
       OperacaoSigla: status.OperacaoSigla,
       Status: status.Status,
-      Usuario: status.Usuario
+      Usuario: status.Usuario,
+      ChaveUnica: status.Title // Espelhamos o ID único também na coluna ChaveUnica se existir
     };
 
     const fields: Record<string, any> = {};
-    
-    // Mapeia e limpa campos somente leitura
     Object.keys(rawFields).forEach(key => {
       const internalName = resolveFieldName(mapping, key);
-      // SE o campo for LinkTitle ou estiver na lista de bloqueio, não enviamos
-      // Exceção: Title é quase sempre editável e primário.
       if (!readOnly.has(internalName) || internalName === 'Title') {
         fields[internalName] = rawFields[key];
       }
     });
 
     try {
+        // Tenta buscar item existente para atualizar (PATCH)
+        // Se a lista estiver vazia ou a coluna Title não for indexada, isso PODE falhar.
         const filter = `fields/Title eq '${status.Title}'`;
         const existing = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$filter=${filter}`, token);
         
@@ -190,14 +203,25 @@ export const SharePointService = {
             body: JSON.stringify(fields)
           });
         } else {
+          // Se não encontrar, cria novo (POST)
           await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
             method: 'POST',
             body: JSON.stringify({ fields })
           });
         }
     } catch (e: any) {
-        console.error("Erro detalhado no updateStatus:", e.message);
-        throw e;
+        // Se cair aqui, pode ser erro de indexação (lista vazia/nova)
+        // Tentamos o POST direto como "última esperança"
+        console.warn("Busca falhou ou erro de indexação. Tentando POST direto...");
+        try {
+            await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
+              method: 'POST',
+              body: JSON.stringify({ fields })
+            });
+        } catch (postErr: any) {
+            console.error("Falha final no POST:", postErr.message);
+            throw postErr;
+        }
     }
   },
 
