@@ -308,46 +308,54 @@ export const SharePointService = {
     try {
       const siteId = await getResolvedSiteId(token);
       const list = await findListByIdOrName(siteId, 'Usuarios_cco', token);
+      const { mapping } = await getListColumnMapping(siteId, list.id, token);
       
-      // Busca todos os itens da lista para filtro local resiliente
-      const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$top=999`, token);
       const searchEmail = email.toLowerCase().trim();
       
-      console.log(`[Auth] Buscando email: ${searchEmail} em ${data.value?.length || 0} registros.`);
+      // Mapeia colunas prováveis baseando-se no que o usuário nos passou
+      const colEmail = resolveFieldName(mapping, 'Email');
+      const colNome = resolveFieldName(mapping, 'Nome'); // Geralmente LinkTitle no mapeamento
+      const colTitle = resolveFieldName(mapping, 'Title');
 
-      // Fix: Added explicit type cast to the initial value of reduce to avoid unknown[] inference at the result level
-      const results = (data.value || []).reduce((acc: string[], item: any) => {
+      // Pega todos os itens (cache local para filtro agressivo)
+      const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields&$top=999`, token);
+      
+      const results: string[] = [];
+      (data.value || []).forEach((item: any) => {
         const f = item.fields || {};
         
-        // Verificação super flexível: busca o e-mail em QUALQUER coluna de texto
-        const isMatch = Object.entries(f).some(([key, val]) => {
-          if (typeof val !== 'string' || key.startsWith('@')) return false;
-          const normalizedVal = val.toLowerCase().trim();
-          return normalizedVal === searchEmail;
+        // Verificação 1: Pelo campo mapeado de e-mail
+        const directEmail = String(f[colEmail] || f['Email'] || f['email'] || "").toLowerCase().trim();
+        
+        // Verificação 2: Brute force (se o e-mail está em qualquer campo)
+        const bruteMatch = Object.entries(f).some(([key, val]) => {
+            if (typeof val !== 'string' || key.startsWith('@')) return false;
+            return val.toLowerCase().trim() === searchEmail;
         });
 
-        if (isMatch) {
-          // Extrai o nome das colunas Title ou LinkTitle (que mapeiam para 'Nome' no SP do usuário)
-          // Se o Title for o próprio email, tenta pegar o outro campo
-          let name = f.Title || f.LinkTitle || f.Nome || "";
-          
-          if (!name || name.toLowerCase().trim() === searchEmail) {
-             // Fallback: procura o primeiro campo de texto que NÃO seja o email
-             const otherField = Object.entries(f).find(([k, v]) => 
-                typeof v === 'string' && 
-                v.toLowerCase().trim() !== searchEmail && 
-                !k.startsWith('@') && 
-                !['id', 'ContentType'].includes(k)
-             );
-             name = otherField ? String(otherField[1]) : "Usuário Confirmado";
-          }
-          acc.push(name);
+        if (directEmail === searchEmail || bruteMatch) {
+           // Prioridade para extrair o nome: Nome -> LinkTitle -> Title -> any string that isn't email
+           let name = f[colNome] || f['LinkTitle'] || f['Nome'] || f[colTitle] || f['Title'] || "";
+           
+           if (!name || (typeof name === 'string' && name.toLowerCase().trim() === searchEmail)) {
+               // Fallback final: Pega o primeiro campo de texto que não seja o e-mail
+               const fallbackField = Object.entries(f).find(([k, v]) => 
+                   typeof v === 'string' && 
+                   v.toLowerCase().trim() !== searchEmail && 
+                   !k.startsWith('@') && 
+                   !['id', 'ContentType', 'odata.etag'].includes(k)
+               );
+               if (fallbackField) name = String(fallbackField[1]);
+           }
+
+           if (name && typeof name === 'string') {
+               results.push(name.trim());
+           }
         }
-        return acc;
-      }, [] as string[]);
+      });
 
       const uniqueResults = Array.from(new Set(results));
-      console.log(`[Auth] Matches encontrados:`, uniqueResults);
+      console.log(`[RegisteredUsers] Encontrados para ${email}:`, uniqueResults);
       return uniqueResults;
     } catch (e) { 
       console.error("Erro crítico em getRegisteredUsers:", e);
