@@ -47,6 +47,8 @@ const TaskManager: React.FC<TaskManagerProps> = ({
   
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [resetResponsible, setResetResponsible] = useState('');
+  const [registeredUsers, setRegisteredUsers] = useState<string[]>([]);
+  const [isLoadingUsers, setIsLoadingUsers] = useState(false);
 
   const [isDragging, setIsDragging] = useState(false);
   const paintedThisDrag = useRef<Set<string>>(new Set());
@@ -114,10 +116,20 @@ const TaskManager: React.FC<TaskManagerProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  const handleOpenResetModal = () => {
-    // Preenche com o nome do usuário logado por padrão, mas permite apagar e mudar
-    setResetResponsible(currentUser.name || '');
+  const handleOpenResetModal = async () => {
     setIsResetModalOpen(true);
+    setIsLoadingUsers(true);
+    try {
+        const token = currentUser.accessToken || (window as any).__access_token;
+        if (token) {
+            const users = await SharePointService.getRegisteredUsers(token, currentUser.email);
+            setRegisteredUsers(users);
+        }
+    } catch (e) {
+        console.error("Erro ao carregar sugestões de usuários:", e);
+    } finally {
+        setIsLoadingUsers(false);
+    }
   };
 
   const handleUpdateStatus = async (taskId: string, location: string, status: OperationStatus) => {
@@ -338,7 +350,7 @@ const TaskManager: React.FC<TaskManagerProps> = ({
         </div>
       </div>
 
-      {/* RESET MODAL - SIMPLIFICADO SEM DROPDOWN */}
+      {/* RESET MODAL */}
       {isResetModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border dark:border-slate-700">
@@ -359,20 +371,32 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                 <div className="p-6 bg-gray-50 dark:bg-slate-900">
                     <div className="mb-6">
                         <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2 flex items-center gap-2">
-                            <UserCheck size={14} /> Digite seu Nome para o Reset
+                            <UserCheck size={14} /> Quem está realizando o reset?
                         </label>
                         
                         <div className="relative">
                             <input 
                                 type="text"
+                                list="registered-names"
                                 value={resetResponsible}
                                 onChange={(e) => setResetResponsible(e.target.value)}
                                 className="w-full p-4 border dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-sm dark:text-white focus:ring-2 focus:ring-amber-500 outline-none font-bold shadow-sm transition-all"
-                                placeholder="Seu nome completo..."
+                                placeholder="Digite ou selecione seu nome..."
                                 autoFocus
                             />
+                            <datalist id="registered-names">
+                                {registeredUsers.map(name => (
+                                    <option key={name} value={name} />
+                                ))}
+                            </datalist>
+
+                            {isLoadingUsers && (
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 flex items-center gap-1 text-[9px] uppercase font-bold">
+                                    <Loader2 size={12} className="animate-spin" /> Buscando nomes...
+                                </div>
+                            )}
                         </div>
-                        <p className="mt-2 text-[10px] text-slate-400 italic">O nome informado será registrado no histórico oficial do SharePoint.</p>
+                        <p className="mt-2 text-[10px] text-slate-400 italic">Digite seu nome completo para registro no histórico.</p>
                     </div>
 
                     <div className="flex gap-3 mt-8">
