@@ -5,12 +5,12 @@ import { History, Calendar, Clock, ChevronRight, ChevronDown, CheckCircle2, User
 import React, { useState, useEffect } from 'react';
 
 const STATUS_CONFIG: Record<string, { label: string, color: string }> = {
-  'PR': { label: 'PR', color: 'bg-slate-200 text-slate-600 border-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600' },
-  'OK': { label: 'OK', color: 'bg-green-200 text-green-800 border-green-300 dark:bg-green-900/60 dark:text-green-300 dark:border-green-800' },
-  'EA': { label: 'EA', color: 'bg-yellow-200 text-yellow-800 border-yellow-300 dark:bg-yellow-900/60 dark:text-yellow-300 dark:border-yellow-800' },
-  'AR': { label: 'AR', color: 'bg-orange-200 text-orange-800 border-orange-300 dark:bg-orange-900/60 dark:text-orange-300 dark:border-orange-800' },
-  'ATT': { label: 'ATT', color: 'bg-blue-200 text-blue-800 border-blue-300 dark:bg-blue-900/60 dark:text-blue-300 dark:border-blue-800' },
-  'AT': { label: 'AT', color: 'bg-red-500 text-white border-red-600 dark:bg-red-800 dark:text-white dark:border-red-700' },
+  'PR': { label: 'PR', color: 'bg-slate-600 text-white border-slate-500' },
+  'OK': { label: 'OK', color: 'bg-[#22c55e] text-white border-[#16a34a]' },
+  'EA': { label: 'EA', color: 'bg-[#fbbf24] text-slate-900 border-[#f59e0b]' },
+  'AR': { label: 'AR', color: 'bg-[#fb923c] text-white border-[#f97316]' },
+  'ATT': { label: 'ATT', color: 'bg-[#38bdf8] text-slate-900 border-[#0ea5e9]' },
+  'AT': { label: 'AT', color: 'bg-[#b91c1c] text-white border-[#991b1b]' },
 };
 
 interface HistoryViewerProps {
