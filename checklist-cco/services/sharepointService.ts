@@ -107,19 +107,34 @@ export const SharePointService = {
     await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, { method: 'POST', body: JSON.stringify({ fields }) });
   },
 
-  async getOperations(token: string, _userEmail: string): Promise<SPOperation[]> {
+  async getOperations(token: string, userEmail: string): Promise<SPOperation[]> {
     try {
         const siteId = await getResolvedSiteId(token);
         const list = await findListByIdOrName(siteId, 'Operacoes_Checklist', token);
         const { mapping } = await getListColumnMapping(siteId, list.id, token);
-        const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields`, token);
+        const emailField = resolveFieldName(mapping, 'Email');
+        const filter = userEmail ? `&$filter=fields/${emailField} eq '${userEmail}'` : '';
+        const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields${filter}`, token);
         return (data.value || []).map((item: any) => ({
             id: String(item.fields.id || item.id),
             Title: item.fields.Title || "OP",
             Ordem: Number(item.fields[resolveFieldName(mapping, 'Ordem')]) || 0,
-            Email: item.fields[resolveFieldName(mapping, 'Email')] || ""
+            Email: item.fields[emailField] || ""
           })).sort((a: any, b: any) => a.Ordem - b.Ordem);
     } catch (e) { return []; }
+  },
+
+  async getTeamMembers(token: string): Promise<string[]> {
+    try {
+        const siteId = await getResolvedSiteId(token);
+        // Assumimos que existe uma lista chamada 'Equipe_Checklist' para selecionar o responsável
+        const list = await findListByIdOrName(siteId, 'Equipe_Checklist', token);
+        const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields`, token);
+        return (data.value || []).map((item: any) => item.fields.Title).filter(Boolean).sort();
+    } catch (e) { 
+        console.warn("Equipe_Checklist não encontrada, usando nomes padrão.");
+        return ['Logística 1', 'Logística 2', 'Supervisor'];
+    }
   },
 
   async ensureMatrix(token: string, tasks: SPTask[], ops: SPOperation[]): Promise<void> {
@@ -211,7 +226,7 @@ export const SharePointService = {
   },
 
   async getAllListsMetadata(token: string) {
-    const listNames = ['Tarefas_Checklist', 'Operacoes_Checklist', 'Status_Checklist', 'Historico_checklist_web'];
+    const listNames = ['Tarefas_Checklist', 'Operacoes_Checklist', 'Status_Checklist', 'Historico_checklist_web', 'Equipe_Checklist'];
     return Promise.all(listNames.map(async name => {
       try {
         const siteId = await getResolvedSiteId(token);

@@ -23,6 +23,7 @@ const AppContent = () => {
   const [currentUser, setUser] = useState<User | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
+  const [teamMembers, setTeamMembers] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [syncMessage, setSyncMessage] = useState("Iniciando...");
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -39,7 +40,10 @@ const AppContent = () => {
       setSyncMessage("Carregando Definições...");
       const spTasks = await SharePointService.getTasks(user.accessToken);
       const spOps = await SharePointService.getOperations(user.accessToken, user.email);
+      const spTeam = await SharePointService.getTeamMembers(user.accessToken);
       
+      setTeamMembers(spTeam);
+
       setSyncMessage("Sincronizando Matriz 1:1...");
       await SharePointService.ensureMatrix(user.accessToken, spTasks, spOps);
 
@@ -138,6 +142,7 @@ const AppContent = () => {
                 setCollapsedCategories={setCollapsedCategories} 
                 currentUser={currentUser}
                 onLogout={handleLogout}
+                teamMembers={teamMembers}
               />
             } />
             <Route path="/departures" element={<RouteDepartureView />} />

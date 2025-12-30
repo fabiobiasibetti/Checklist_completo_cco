@@ -2,13 +2,12 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Task, OperationStatus, User } from '../types';
 import { SharePointService } from '../services/sharepointService';
-import { parseExcelContentToTasks } from '../services/geminiService';
 import { 
-  Maximize2, Minimize2, Loader2, Database, 
-  ShieldCheck, RefreshCw, CheckCircle,
-  Activity, PaintBucket, HelpCircle, X, LogOut, 
-  ChevronDown, ChevronRight, RotateCcw, Save, 
-  UserCheck, Upload, Sparkles, Send
+  Loader2, Database, 
+  ShieldCheck,
+  Activity, X, LogOut, 
+  ChevronDown, ChevronRight, RotateCcw,
+  UserCheck, Send
 } from 'lucide-react';
 
 const STATUS_CONFIG: Record<string, { label: string, color: string, next: OperationStatus, shortcut: string, desc: string }> = {
@@ -30,6 +29,7 @@ interface TaskManagerProps {
   setCollapsedCategories: any;
   currentUser: User;
   onLogout: () => void;
+  teamMembers?: string[];
 }
 
 const TaskManager: React.FC<TaskManagerProps> = ({ 
@@ -38,9 +38,9 @@ const TaskManager: React.FC<TaskManagerProps> = ({
   locations, 
   collapsedCategories,
   setCollapsedCategories,
-  onUserSwitch, 
   currentUser,
-  onLogout
+  onLogout,
+  teamMembers = []
 }) => {
   const [activeTool, setActiveTool] = useState<OperationStatus | null>(null);
   const [isUpdating, setIsUpdating] = useState(false);
@@ -49,14 +49,8 @@ const TaskManager: React.FC<TaskManagerProps> = ({
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [resetResponsible, setResetResponsible] = useState('');
 
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importText, setImportText] = useState('');
-  const [isProcessingImport, setIsProcessingImport] = useState(false);
-
   const [isDragging, setIsDragging] = useState(false);
-  const paintedThisDrag = useRef<Set<string>>(new Set());
   
-  const autoCollapsedSessionRef = useRef<Set<string>>(new Set());
   const manuallyOpenedRef = useRef<Set<string>>(new Set());
 
   const getCategoryStats = (category: string) => {
@@ -79,13 +73,12 @@ const TaskManager: React.FC<TaskManagerProps> = ({
         const stats = getCategoryStats(cat);
         if (stats.isComplete && !collapsedCategories.includes(cat) && !manuallyOpenedRef.current.has(cat)) {
             setCollapsedCategories((prev: string[]) => [...prev, cat]);
-            autoCollapsedSessionRef.current.add(cat);
         }
     });
   }, [tasks]);
 
   useEffect(() => {
-    const handleMouseUp = () => { setIsDragging(false); paintedThisDrag.current.clear(); };
+    const handleMouseUp = () => { setIsDragging(false); };
     window.addEventListener('mouseup', handleMouseUp);
     return () => window.removeEventListener('mouseup', handleMouseUp);
   }, []);
@@ -115,11 +108,10 @@ const TaskManager: React.FC<TaskManagerProps> = ({
   };
 
   const handleResetChecklist = async () => {
-    if (!resetResponsible.trim() || !currentUser.accessToken) return;
+    if (!resetResponsible || !currentUser.accessToken) return;
     
     setIsUpdating(true);
     try {
-        // Salva histórico
         await SharePointService.saveHistory(currentUser.accessToken, {
             id: Date.now().toString(),
             timestamp: new Date().toISOString(),
@@ -131,7 +123,6 @@ const TaskManager: React.FC<TaskManagerProps> = ({
         const today = new Date().toISOString().split('T')[0];
         const todayKey = today.replace(/-/g, '');
         
-        // Reset em lote
         const promises = [];
         for (const task of tasks) {
             for (const loc of locations) {
@@ -155,29 +146,6 @@ const TaskManager: React.FC<TaskManagerProps> = ({
         alert(`Erro ao resetar: ${error.message}`);
     } finally {
         setIsUpdating(false);
-    }
-  };
-
-  const handleImportChecklist = async () => {
-    if (!importText.trim() || !currentUser.accessToken) return;
-    setIsProcessingImport(true);
-    try {
-      const parsedTasks = await parseExcelContentToTasks(importText);
-      if (parsedTasks.length === 0) { alert("Nenhuma tarefa identificada."); return; }
-
-      if (confirm(`Importar ${parsedTasks.length} tarefas para o SharePoint?`)) {
-        for (const spTask of parsedTasks) {
-          await SharePointService.createTask(currentUser.accessToken, spTask);
-        }
-        alert("Importação concluída! Recarregando dados...");
-        onUserSwitch();
-        setIsImportModalOpen(false);
-        setImportText('');
-      }
-    } catch (error: any) {
-      alert("Erro na importação: " + error.message);
-    } finally {
-      setIsProcessingImport(false);
     }
   };
 
@@ -240,13 +208,9 @@ const TaskManager: React.FC<TaskManagerProps> = ({
           </div>
 
           <div className="flex items-center gap-1">
-            <button onClick={() => setIsImportModalOpen(true)} className="flex items-center gap-2 px-3 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-xl hover:bg-emerald-100 transition-all border border-emerald-100 dark:border-emerald-800">
-              <Upload size={18} />
-              <span className="text-xs font-bold hidden sm:inline">Importar Excel</span>
-            </button>
-            <button onClick={() => { setResetResponsible(''); setIsResetModalOpen(true); }} className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 transition-all border border-amber-100 dark:border-amber-800">
+            <button onClick={() => { setResetResponsible(''); setIsResetModalOpen(true); }} className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 transition-all border border-amber-100 dark:border-amber-800 shadow-sm">
               <RotateCcw size={18} />
-              <span className="text-xs font-bold hidden sm:inline">Resetar</span>
+              <span className="text-xs font-bold hidden sm:inline">Resetar Checklist</span>
             </button>
             <button onClick={onLogout} className="flex items-center gap-2 px-3 py-1.5 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-xl hover:bg-red-100 transition-all font-bold text-xs">
                 <LogOut size={16}/> Sair
@@ -255,33 +219,7 @@ const TaskManager: React.FC<TaskManagerProps> = ({
         </div>
       </div>
 
-      {/* MODAL DE IMPORTAÇÃO */}
-      {isImportModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border dark:border-slate-700">
-                <div className="bg-emerald-800 text-white p-4 flex justify-between items-center">
-                    <h3 className="font-bold">Importar Tarefas Excel</h3>
-                    <button onClick={() => setIsImportModalOpen(false)}><X size={24} /></button>
-                </div>
-                <div className="p-6">
-                    <textarea 
-                        value={importText} onChange={(e) => setImportText(e.target.value)}
-                        className="w-full h-64 p-4 border dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-xs font-mono dark:text-white mb-4 outline-none"
-                        placeholder="Cole aqui os dados copiados do seu Excel..."
-                    />
-                    <div className="flex gap-3">
-                        <button onClick={() => setIsImportModalOpen(false)} className="flex-1 py-3 bg-gray-200 dark:bg-slate-700 rounded-xl font-bold">Cancelar</button>
-                        <button onClick={handleImportChecklist} disabled={isProcessingImport} className="flex-[2] py-3 bg-emerald-600 text-white font-bold rounded-xl flex items-center justify-center gap-2">
-                            {isProcessingImport ? <Loader2 size={20} className="animate-spin" /> : <Sparkles size={20} />}
-                            Processar com IA
-                        </button>
-                    </div>
-                </div>
-             </div>
-        </div>
-      )}
-
-      {/* MODAL DE RESET (SIMPLIFICADO E SEM TRAVAS) */}
+      {/* MODAL DE RESET */}
       {isResetModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border dark:border-slate-700 animate-in zoom-in duration-200">
@@ -290,24 +228,29 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                         <RotateCcw size={24} />
                         <h3 className="font-black text-xl uppercase tracking-tight">Resetar Checklist</h3>
                     </div>
-                    <p className="text-amber-100 text-xs font-medium">Os dados atuais serão movidos para o histórico permanente no SharePoint.</p>
+                    <p className="text-amber-100 text-xs font-medium">Arquive os status atuais e comece uma nova rodada.</p>
                 </div>
                 
                 <div className="p-8 bg-gray-50 dark:bg-slate-900">
                     <div className="mb-8">
-                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-3 tracking-widest">Quem está realizando o reset?</label>
+                        <label className="block text-[10px] font-black text-gray-400 uppercase mb-3 tracking-widest">Responsável pelo Reset</label>
                         <div className="relative group">
-                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-amber-500">
+                            <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-amber-500 z-10">
                                 <UserCheck size={20} />
                             </div>
-                            <input 
-                                type="text"
+                            <select 
                                 value={resetResponsible}
                                 onChange={(e) => setResetResponsible(e.target.value)}
-                                className="w-full pl-12 p-4 border-2 border-slate-200 dark:border-slate-700 rounded-2xl bg-white dark:bg-slate-800 text-lg font-bold dark:text-white focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 outline-none transition-all placeholder:text-slate-300"
-                                placeholder="Digite seu nome completo..."
-                                autoFocus
-                            />
+                                className="w-full pl-12 p-4 border-2 border-slate-200 dark:border-slate-700 rounded-2xl bg-white dark:bg-slate-800 text-lg font-bold dark:text-white focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 outline-none appearance-none transition-all"
+                            >
+                                <option value="" disabled>Selecione seu nome...</option>
+                                {teamMembers.map(name => (
+                                    <option key={name} value={name}>{name}</option>
+                                ))}
+                            </select>
+                            <div className="absolute inset-y-0 right-0 pr-4 flex items-center pointer-events-none text-slate-400">
+                                <ChevronDown size={20} />
+                            </div>
                         </div>
                     </div>
 
@@ -320,7 +263,7 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                         </button>
                         <button 
                             onClick={handleResetChecklist} 
-                            disabled={!resetResponsible.trim() || isUpdating} 
+                            disabled={!resetResponsible || isUpdating} 
                             className="flex-[2] py-4 bg-amber-600 text-white font-black rounded-2xl shadow-xl flex items-center justify-center gap-3 transition-all hover:bg-amber-700 active:scale-95 disabled:opacity-50 uppercase text-xs"
                         >
                             {isUpdating ? <Loader2 size={20} className="animate-spin" /> : <Send size={20} />}
@@ -337,8 +280,8 @@ const TaskManager: React.FC<TaskManagerProps> = ({
         {tasks.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center p-12 text-center text-slate-400">
                 <Database size={48} className="mb-6 opacity-20"/>
-                <h3 className="text-lg font-black dark:text-white">Nenhuma tarefa no sistema</h3>
-                <p className="text-sm">Use o botão "Importar Excel" para migrar seus dados.</p>
+                <h3 className="text-lg font-black dark:text-white">Nenhuma tarefa disponível</h3>
+                <p className="text-sm">Contate o administrador para vincular operações ao seu e-mail.</p>
             </div>
         ) : (
             <table className={`min-w-full border-separate border-spacing-0 select-none ${compact ? 'text-[10px]' : 'text-[11px]'}`}>
@@ -353,7 +296,7 @@ const TaskManager: React.FC<TaskManagerProps> = ({
               <tbody>
                 {(Object.entries(groupedTasks) as [string, Task[]][]).map(([cat, catTasks]) => {
                   const isCollapsed = collapsedCategories.includes(cat);
-                  const { percent, isComplete } = getCategoryStats(cat);
+                  const { percent } = getCategoryStats(cat);
                   return (
                     <React.Fragment key={cat}>
                       <tr 
