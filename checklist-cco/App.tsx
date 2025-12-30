@@ -82,7 +82,7 @@ const AppContent = () => {
     }
   };
 
-  // Logic for automatic save after 10:00h
+  // Logic for automatic save after 10:00h - IMPROVED
   useEffect(() => {
     if (!currentUser || tasks.length === 0) return;
 
@@ -92,11 +92,13 @@ const AppContent = () => {
 
       // Trigger if it's 10:00 AM or later
       if (hours >= 10) {
-        const todayStr = now.toISOString().split('T')[0];
-        const autoSaveFlag = `auto_save_done_${todayStr}`;
+        // Usar data local para evitar problemas de fuso horário/UTC
+        const localDateStr = now.toLocaleDateString('pt-BR').replace(/\//g, '-');
+        const safeEmail = currentUser.email.replace(/[^a-zA-Z0-9]/g, '_');
+        const autoSaveFlag = `auto_save_done_${safeEmail}_${localDateStr}`;
         
         if (localStorage.getItem(autoSaveFlag) !== 'true') {
-          console.log("Iniciando backup automático das 10:00h...");
+          console.log(`[${now.toLocaleTimeString()}] Iniciando backup automático das 10:00h...`);
           try {
             await SharePointService.saveHistory(currentUser.accessToken!, {
               id: Date.now().toString(),
@@ -106,7 +108,7 @@ const AppContent = () => {
               email: currentUser.email
             });
             localStorage.setItem(autoSaveFlag, 'true');
-            console.log("Backup automático concluído com sucesso.");
+            console.log("Backup automático 10:00h concluído com sucesso.");
           } catch (e) {
             console.error("Falha no backup automático:", e);
           }
@@ -114,8 +116,8 @@ const AppContent = () => {
       }
     };
 
-    // Check periodically
-    const interval = setInterval(checkAutoSaveTrigger, 300000); // every 5 minutes
+    // Check every 60 seconds
+    const interval = setInterval(checkAutoSaveTrigger, 60000);
     checkAutoSaveTrigger();
     return () => clearInterval(interval);
   }, [currentUser, tasks]);
