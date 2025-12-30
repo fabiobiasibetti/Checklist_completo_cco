@@ -124,9 +124,14 @@ const TaskManager: React.FC<TaskManagerProps> = ({
         if (token) {
             const users = await SharePointService.getRegisteredUsers(token, currentUser.email);
             setRegisteredUsers(users);
+            if (users.length === 1) {
+                setResetResponsible(users[0]);
+            } else {
+                setResetResponsible('');
+            }
         }
     } catch (e) {
-        console.error("Erro ao carregar sugestões de usuários:", e);
+        console.error("Erro ao carregar usuários:", e);
     } finally {
         setIsLoadingUsers(false);
     }
@@ -238,7 +243,6 @@ const TaskManager: React.FC<TaskManagerProps> = ({
         autoCollapsedSessionRef.current.clear();
         manuallyOpenedRef.current.clear();
         setIsResetModalOpen(false);
-        setResetResponsible('');
         alert("Checklist resetado e salvo com sucesso no SharePoint!");
     } catch (error: any) {
         console.error("Erro no Reset:", error);
@@ -361,7 +365,7 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                         </div>
                         <div>
                             <h3 className="font-bold text-lg">Resetar Checklist</h3>
-                            <p className="text-[10px] text-amber-200 uppercase tracking-tighter">O Snapshot será salvo permanentemente</p>
+                            <p className="text-[10px] text-amber-200 uppercase tracking-tighter">Snapshot será salvo no SharePoint</p>
                         </div>
                     </div>
                     <button onClick={() => setIsResetModalOpen(false)} className="hover:bg-white/10 p-1 rounded-full transition-colors">
@@ -370,45 +374,57 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                 </div>
                 <div className="p-6 bg-gray-50 dark:bg-slate-900">
                     <div className="mb-6">
-                        <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2 flex items-center gap-2">
-                            <UserCheck size={14} /> Quem está realizando o reset?
-                        </label>
+                        <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2">Quem está realizando o reset?</label>
                         
                         <div className="relative">
-                            <input 
-                                type="text"
-                                list="registered-names"
-                                value={resetResponsible}
-                                onChange={(e) => setResetResponsible(e.target.value)}
-                                className="w-full p-4 border dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-sm dark:text-white focus:ring-2 focus:ring-amber-500 outline-none font-bold shadow-sm transition-all"
-                                placeholder="Digite ou selecione seu nome..."
-                                autoFocus
-                            />
-                            <datalist id="registered-names">
-                                {registeredUsers.map(name => (
-                                    <option key={name} value={name} />
-                                ))}
-                            </datalist>
-
-                            {isLoadingUsers && (
-                                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 flex items-center gap-1 text-[9px] uppercase font-bold">
-                                    <Loader2 size={12} className="animate-spin" /> Buscando nomes...
+                            {isLoadingUsers ? (
+                                <div className="flex items-center gap-2 p-3 bg-white dark:bg-slate-800 border dark:border-slate-700 rounded-xl text-slate-400 text-sm italic">
+                                    <Loader2 size={16} className="animate-spin" /> Buscando nomes cadastrados...
+                                </div>
+                            ) : registeredUsers.length > 0 ? (
+                                <select 
+                                    value={resetResponsible}
+                                    onChange={(e) => setResetResponsible(e.target.value)}
+                                    className="w-full p-3 pr-10 border dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-sm dark:text-white focus:ring-2 focus:ring-amber-500 outline-none appearance-none font-bold shadow-sm"
+                                    autoFocus
+                                >
+                                    <option value="">Selecione seu nome...</option>
+                                    {registeredUsers.map(name => (
+                                        <option key={name} value={name}>{name}</option>
+                                    ))}
+                                </select>
+                            ) : (
+                                <div className="p-4 bg-red-50 dark:bg-red-900/20 border border-red-100 dark:border-red-900 rounded-xl text-red-600 dark:text-red-400 text-xs flex flex-col gap-2">
+                                    <div className="flex items-center gap-2 font-bold uppercase">
+                                        <AlertCircle size={16} /> Dados não encontrados
+                                    </div>
+                                    <p className="opacity-80">Não foi possível carregar a lista de usuários da tabela 'Usuarios_cco'. Verifique se existem registros no SharePoint.</p>
+                                </div>
+                            )}
+                            {!isLoadingUsers && registeredUsers.length > 0 && (
+                                <div className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none">
+                                    <ChevronDown size={18} />
                                 </div>
                             )}
                         </div>
-                        <p className="mt-2 text-[10px] text-slate-400 italic">Digite seu nome completo para registro no histórico.</p>
                     </div>
 
                     <div className="flex gap-3 mt-8">
                         <button onClick={() => setIsResetModalOpen(false)} className="flex-1 py-3 bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-200 font-bold rounded-xl hover:bg-gray-300 dark:hover:bg-slate-600 transition-colors">Cancelar</button>
                         <button 
                             onClick={handleResetChecklist} 
-                            disabled={!resetResponsible.trim() || isUpdating} 
+                            disabled={!resetResponsible.trim() || isUpdating || isLoadingUsers} 
                             className="flex-[2] py-3 bg-amber-600 text-white font-bold rounded-xl shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 transition-all hover:bg-amber-700 active:scale-95"
                         >
                             {isUpdating ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
                             Confirmar Reset
                         </button>
+                    </div>
+                    
+                    <div className="mt-4 text-center">
+                        <p className="text-[10px] text-slate-400 font-medium italic">
+                            O histórico será vinculado ao acesso corporativo logado.
+                        </p>
                     </div>
                 </div>
              </div>

@@ -327,7 +327,7 @@ export const SharePointService = {
         let name = f[colNome] || f.Nome || f.LinkTitle || f.Title || "";
 
         if (!name || (typeof name === 'string' && name.trim().length === 0)) {
-           // Fallback para qualquer campo de texto
+           // Fallback para qualquer campo de texto que não seja email
            const anyTextField = Object.entries(f).find(([key, val]) => {
               if (typeof val !== 'string' || key.startsWith('@') || key === 'id' || key === 'ContentType') return false;
               const valTrim = val.trim();
@@ -342,7 +342,7 @@ export const SharePointService = {
       });
 
       const finalResults = Array.from(new Set(results)).sort((a, b) => a.localeCompare(b));
-      console.log(`[AUTH] Carregadas ${finalResults.length} sugestões de usuários.`);
+      console.log(`[AUTH] Carregados ${finalResults.length} usuários da lista Usuarios_checklist_cco.`);
       return finalResults;
     } catch (e) { 
       console.error("Erro crítico em getRegisteredUsers:", e);
@@ -351,6 +351,7 @@ export const SharePointService = {
   },
 
   async getAllListsMetadata(token: string) {
+    // NOMES DAS LISTAS ATUALIZADOS
     const listNames = ['Tarefas_Checklist', 'Operacoes_Checklist', 'Status_Checklist', 'Historico_checklist_web', 'Usuarios_checklist_cco'];
     return Promise.all(listNames.map(async name => {
       try {
