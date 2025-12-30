@@ -23,6 +23,7 @@ const AppContent = () => {
   const [currentUser, setUser] = useState<User | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [locations, setLocations] = useState<string[]>([]);
+  const [teamMembers, setTeamMembers] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [syncMessage, setSyncMessage] = useState("Iniciando...");
   const [isDarkMode, setIsDarkMode] = useState(true);
@@ -39,6 +40,8 @@ const AppContent = () => {
       setSyncMessage("Carregando Definições...");
       const spTasks = await SharePointService.getTasks(user.accessToken);
       const spOps = await SharePointService.getOperations(user.accessToken, user.email);
+      const spMembers = await SharePointService.getTeamMembers(user.accessToken);
+      setTeamMembers(spMembers);
       
       setSyncMessage("Sincronizando Matriz 1:1...");
       await SharePointService.ensureMatrix(user.accessToken, spTasks, spOps);
@@ -79,11 +82,46 @@ const AppContent = () => {
     }
   };
 
+  // Logic for automatic save after 10:00h
+  useEffect(() => {
+    if (!currentUser || tasks.length === 0) return;
+
+    const checkAutoSaveTrigger = async () => {
+      const now = new Date();
+      const hours = now.getHours();
+
+      // Trigger if it's 10:00 AM or later
+      if (hours >= 10) {
+        const todayStr = now.toISOString().split('T')[0];
+        const autoSaveFlag = `auto_save_done_${todayStr}`;
+        
+        if (localStorage.getItem(autoSaveFlag) !== 'true') {
+          console.log("Iniciando backup automático das 10:00h...");
+          try {
+            await SharePointService.saveHistory(currentUser.accessToken!, {
+              id: Date.now().toString(),
+              timestamp: now.toISOString(),
+              tasks: tasks,
+              resetBy: 'Salvamento automático (10:00h)',
+              email: currentUser.email
+            });
+            localStorage.setItem(autoSaveFlag, 'true');
+            console.log("Backup automático concluído com sucesso.");
+          } catch (e) {
+            console.error("Falha no backup automático:", e);
+          }
+        }
+      }
+    };
+
+    // Check periodically
+    const interval = setInterval(checkAutoSaveTrigger, 300000); // every 5 minutes
+    checkAutoSaveTrigger();
+    return () => clearInterval(interval);
+  }, [currentUser, tasks]);
+
   const handleLogout = async () => {
-    // Chama o logout real da Microsoft
     await msalLogout();
-    
-    // Limpeza de estado local caso o redirect não tenha ocorrido
     setUser(null);
     setStorageUser(null);
     delete (window as any).__access_token;
@@ -138,6 +176,7 @@ const AppContent = () => {
                 setCollapsedCategories={setCollapsedCategories} 
                 currentUser={currentUser}
                 onLogout={handleLogout}
+                teamMembers={teamMembers}
               />
             } />
             <Route path="/departures" element={<RouteDepartureView />} />
