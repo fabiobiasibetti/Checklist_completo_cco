@@ -94,42 +94,31 @@ export const SharePointService = {
     } catch (e) { return []; }
   },
 
-  async createTask(token: string, task: Partial<SPTask>): Promise<void> {
-    const siteId = await getResolvedSiteId(token);
-    const list = await findListByIdOrName(siteId, 'Tarefas_Checklist', token);
-    const { mapping, internalNames, readOnly } = await getListColumnMapping(siteId, list.id, token);
-    const rawFields: any = { Title: task.Title, Descricao: task.Descricao, Categoria: task.Categoria, Horario: task.Horario, Ativa: task.Ativa ?? true, Ordem: task.Ordem ?? 999 };
-    const fields: any = {};
-    Object.keys(rawFields).forEach(key => {
-        const int = resolveFieldName(mapping, key);
-        if (internalNames.has(int) && !readOnly.has(int)) fields[int] = rawFields[key];
-    });
-    await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, { method: 'POST', body: JSON.stringify({ fields }) });
-  },
-
   async getOperations(token: string, userEmail: string): Promise<SPOperation[]> {
     try {
         const siteId = await getResolvedSiteId(token);
         const list = await findListByIdOrName(siteId, 'Operacoes_Checklist', token);
         const { mapping } = await getListColumnMapping(siteId, list.id, token);
         
-        // Nome interno fornecido pelo usuário: Responsavel
+        // Nome interno fornecido no Explorer: Responsavel
         const emailField = mapping['responsavel'] || 'Responsavel';
-        const filter = userEmail ? `&$filter=fields/${emailField} eq '${userEmail}'` : '';
         
-        const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields${filter}`, token);
-        return (data.value || []).map((item: any) => ({
+        // Fetch all and filter client-side for better reliability with accents/case in emails
+        const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields`, token);
+        
+        return (data.value || [])
+          .map((item: any) => ({
             id: String(item.fields.id || item.id),
             Title: item.fields.Title || "OP",
             Ordem: Number(item.fields[resolveFieldName(mapping, 'Ordem')]) || 0,
             Email: item.fields[emailField] || ""
-          })).sort((a: any, b: any) => a.Ordem - b.Ordem);
+          }))
+          .filter((op: SPOperation) => op.Email.toLowerCase() === userEmail.toLowerCase())
+          .sort((a: SPOperation, b: SPOperation) => a.Ordem - b.Ordem);
     } catch (e) { return []; }
   },
 
-  // Fix: Renamed from getTeamMembers to getRegisteredUsers and updated to fetch from 'Usuarios_cco'
-  // and accept an optional userEmail parameter as called from TaskManager.tsx
-  async getRegisteredUsers(token: string, _userEmail?: string): Promise<string[]> {
+  async getTeamMembers(token: string): Promise<string[]> {
     try {
         const siteId = await getResolvedSiteId(token);
         const list = await findListByIdOrName(siteId, 'Usuarios_cco', token);
@@ -211,24 +200,11 @@ export const SharePointService = {
     const list = await findListByIdOrName(siteId, 'Historico_checklist_web', token);
     const { mapping, internalNames } = await getListColumnMapping(siteId, list.id, token);
     
-    // Nome interno fornecido pelo usuário: celula
     const celulaInternalName = mapping['celula'] || 'celula';
-    
-    const raw = { 
-        Title: record.resetBy || 'Reset', 
-        Data: new Date(record.timestamp).toISOString(), 
-        DadosJSON: JSON.stringify(record.tasks)
-    };
-    
+    const raw = { Title: record.resetBy || 'Reset', Data: new Date(record.timestamp).toISOString(), DadosJSON: JSON.stringify(record.tasks) };
     const fields: any = {};
-    Object.keys(raw).forEach(k => { 
-        const int = resolveFieldName(mapping, k); 
-        if (internalNames.has(int)) fields[int] = (raw as any)[k]; 
-    });
-    
-    // Explicitamente seta a celula
+    Object.keys(raw).forEach(k => { const int = resolveFieldName(mapping, k); if (internalNames.has(int)) fields[int] = (raw as any)[k]; });
     fields[celulaInternalName] = record.email;
-
     await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, { method: 'POST', body: JSON.stringify({ fields }) });
   },
 
@@ -237,19 +213,19 @@ export const SharePointService = {
       const siteId = await getResolvedSiteId(token);
       const list = await findListByIdOrName(siteId, 'Historico_checklist_web', token);
       const { mapping } = await getListColumnMapping(siteId, list.id, token);
-      
-      // Nome interno fornecido pelo usuário: celula
       const celulaField = mapping['celula'] || 'celula';
-      const filter = `&$filter=fields/${celulaField} eq '${userEmail}'`;
       
-      const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields${filter}`, token);
-      return (data.value || []).map((item: any) => ({
-        id: item.id, 
-        timestamp: item.fields.Data, 
-        resetBy: item.fields.Title, 
-        email: item.fields[celulaField], 
-        tasks: JSON.parse(item.fields.DadosJSON || '[]')
-      })).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields`, token);
+      return (data.value || [])
+        .map((item: any) => ({
+          id: item.id, 
+          timestamp: item.fields.Data, 
+          resetBy: item.fields.Title, 
+          email: item.fields[celulaField], 
+          tasks: JSON.parse(item.fields.DadosJSON || '[]')
+        }))
+        .filter((record: HistoryRecord) => record.email?.toLowerCase() === userEmail.toLowerCase())
+        .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     } catch (e) { return []; }
   },
 
