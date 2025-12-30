@@ -9,7 +9,7 @@ const STATUS_CONFIG: Record<string, { label: string, color: string }> = {
   'OK': { label: 'OK', color: 'bg-emerald-500 text-white border-emerald-600 dark:bg-emerald-600' },
   'EA': { label: 'EA', color: 'bg-amber-400 text-slate-900 border-amber-500 dark:bg-amber-500 dark:text-slate-950' },
   'AR': { label: 'AR', color: 'bg-orange-500 text-white border-orange-600 dark:bg-orange-600' },
-  'ATT': { label: 'ATT', color: 'bg-sky-500 text-white border-sky-600 dark:bg-sky-600' },
+  'ATT': { label: 'ATT', color: 'bg-blue-800 text-white border-blue-900 dark:bg-blue-900' },
   'AT': { label: 'AT', color: 'bg-rose-600 text-white border-rose-700 dark:bg-rose-700' },
 };
 

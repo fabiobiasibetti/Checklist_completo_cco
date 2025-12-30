@@ -14,7 +14,7 @@ import {
 const STATUS_CONFIG: Record<string, { label: string, color: string, next: OperationStatus, shortcut: string, desc: string }> = {
   'OK': { label: 'OK', color: 'bg-emerald-500 text-white border-emerald-600 shadow-emerald-500/20 dark:bg-emerald-600', next: 'EA', shortcut: '1', desc: 'Concluído' },
   'EA': { label: 'EA', color: 'bg-amber-400 text-slate-900 border-amber-500 shadow-amber-400/20 dark:bg-amber-500 dark:text-slate-950', next: 'AR', shortcut: '2', desc: 'Em Andamento' },
-  'ATT': { label: 'ATT', color: 'bg-sky-500 text-white border-sky-600 shadow-sky-500/20 dark:bg-sky-600', next: 'AT', shortcut: '3', desc: 'Atualizar' },
+  'ATT': { label: 'ATT', color: 'bg-blue-800 text-white border-blue-900 shadow-blue-800/20 dark:bg-blue-900', next: 'AT', shortcut: '3', desc: 'Atualizar' },
   'AR': { label: 'AR', color: 'bg-orange-500 text-white border-orange-600 shadow-orange-500/20 dark:bg-orange-600', next: 'ATT', shortcut: '4', desc: 'Aguardando Retorno' },
   'AT': { label: 'AT', color: 'bg-rose-600 text-white border-rose-700 shadow-rose-600/20 dark:bg-rose-700', next: 'PR', shortcut: '5', desc: 'Atrasado' },
   'PR': { label: 'PR', color: 'bg-slate-400 text-white border-slate-500 shadow-slate-400/20 dark:bg-slate-500', next: 'OK', shortcut: '6', desc: 'Pendente' },
