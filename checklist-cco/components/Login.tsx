@@ -22,8 +22,13 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
         try {
             await msalInstance.initialize();
             
+            // Verifica se o usuário saiu manualmente anteriormente
+            const isManualLogout = localStorage.getItem('msal_manual_logout') === 'true';
+
             const response = await msalInstance.handleRedirectPromise();
             if (response && response.account) {
+                // Se voltamos de um redirect de login, limpamos o flag de logout
+                localStorage.removeItem('msal_manual_logout');
                 onLogin({
                     email: response.account.username,
                     name: response.account.name || response.account.username,
@@ -32,27 +37,32 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
                 return;
             }
 
-            const accounts = msalInstance.getAllAccounts();
-            if (accounts.length > 0) {
-                try {
-                    const silentRequest = {
-                        scopes: ["User.Read", "Sites.ReadWrite.All"],
-                        account: accounts[0]
-                    };
-                    const silentResponse = await msalInstance.acquireTokenSilent(silentRequest);
-                    if (silentResponse) {
-                        onLogin({
-                            email: silentResponse.account.username,
-                            name: silentResponse.account.name || silentResponse.account.username,
-                            accessToken: silentResponse.accessToken
-                        });
-                        return;
-                    }
-                } catch (silentError) {
-                    if (silentError instanceof InteractionRequiredAuthError) {
-                        console.warn("Sessão expirada, login manual necessário.");
+            // Só tenta o login silencioso se o usuário não tiver clicado em "Sair" recentemente
+            if (!isManualLogout) {
+                const accounts = msalInstance.getAllAccounts();
+                if (accounts.length > 0) {
+                    try {
+                        const silentRequest = {
+                            scopes: ["User.Read", "Sites.ReadWrite.All"],
+                            account: accounts[0]
+                        };
+                        const silentResponse = await msalInstance.acquireTokenSilent(silentRequest);
+                        if (silentResponse) {
+                            onLogin({
+                                email: silentResponse.account.username,
+                                name: silentResponse.account.name || silentResponse.account.username,
+                                accessToken: silentResponse.accessToken
+                            });
+                            return;
+                        }
+                    } catch (silentError) {
+                        if (silentError instanceof InteractionRequiredAuthError) {
+                            console.warn("Sessão expirada ou requer interação.");
+                        }
                     }
                 }
+            } else {
+                console.log("Logout manual ativo: ignorando login silencioso.");
             }
         } catch (e) {
             console.error("Erro na inicialização do MSAL:", e);
@@ -74,6 +84,8 @@ const Login: React.FC<{ onLogin: (user: User) => void }> = ({ onLogin }) => {
         };
         const response = await msalInstance.loginPopup(loginRequest);
         if (response && response.account) {
+            // Sucesso no login: removemos o flag de logout manual
+            localStorage.removeItem('msal_manual_logout');
             setCurrentUser(response.account.username);
             onLogin({
                 email: response.account.username,
