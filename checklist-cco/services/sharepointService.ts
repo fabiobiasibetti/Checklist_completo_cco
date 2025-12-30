@@ -100,22 +100,27 @@ export const SharePointService = {
         const list = await findListByIdOrName(siteId, 'Operacoes_Checklist', token);
         const { mapping } = await getListColumnMapping(siteId, list.id, token);
         
-        // Nome interno fornecido no Explorer: Responsavel
+        // Garantindo o nome interno correto: Responsavel
         const emailField = mapping['responsavel'] || 'Responsavel';
         
-        // Fetch all and filter client-side for better reliability with accents/case in emails
+        // Buscamos todos os itens para garantir que o filtro local funcione mesmo com e-mails sensíveis a maiúsculas/espaços
         const data = await graphFetch(`/sites/${siteId}/lists/${list.id}/items?expand=fields`, token);
         
-        return (data.value || [])
+        const filtered = (data.value || [])
           .map((item: any) => ({
             id: String(item.fields.id || item.id),
             Title: item.fields.Title || "OP",
             Ordem: Number(item.fields[resolveFieldName(mapping, 'Ordem')]) || 0,
-            Email: item.fields[emailField] || ""
+            Email: (item.fields[emailField] || "").toString().trim()
           }))
-          .filter((op: SPOperation) => op.Email.toLowerCase() === userEmail.toLowerCase())
+          .filter((op: SPOperation) => op.Email.toLowerCase() === userEmail.toLowerCase().trim())
           .sort((a: SPOperation, b: SPOperation) => a.Ordem - b.Ordem);
-    } catch (e) { return []; }
+          
+        return filtered;
+    } catch (e) { 
+        console.error("Erro ao buscar operações:", e);
+        return []; 
+    }
   },
 
   async getTeamMembers(token: string): Promise<string[]> {
@@ -127,6 +132,10 @@ export const SharePointService = {
     } catch (e) { 
         return ['Logística 1', 'Logística 2', 'Supervisor'];
     }
+  },
+
+  async getRegisteredUsers(token: string, _userEmail?: string): Promise<string[]> {
+      return this.getTeamMembers(token);
   },
 
   async ensureMatrix(token: string, tasks: SPTask[], ops: SPOperation[]): Promise<void> {
@@ -221,10 +230,10 @@ export const SharePointService = {
           id: item.id, 
           timestamp: item.fields.Data, 
           resetBy: item.fields.Title, 
-          email: item.fields[celulaField], 
+          email: (item.fields[celulaField] || "").toString().trim(), 
           tasks: JSON.parse(item.fields.DadosJSON || '[]')
         }))
-        .filter((record: HistoryRecord) => record.email?.toLowerCase() === userEmail.toLowerCase())
+        .filter((record: HistoryRecord) => record.email?.toLowerCase() === userEmail.toLowerCase().trim())
         .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     } catch (e) { return []; }
   },
