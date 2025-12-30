@@ -1,14 +1,13 @@
 
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Task, OperationStatus, User, SPTask } from '../types';
+import { Task, OperationStatus, User } from '../types';
 import { SharePointService } from '../services/sharepointService';
-import { parseExcelContentToTasks } from '../services/geminiService';
 import { 
   Maximize2, Minimize2, Loader2, Database, 
   ShieldCheck, AlertCircle, RefreshCw, CheckCircle,
   Activity, Lock, CheckCircle2, PaintBucket,
   HelpCircle, X, LogOut, ChevronDown, ChevronRight,
-  RotateCcw, Save, UserCheck, Upload, Sparkles
+  RotateCcw, Save, UserCheck
 } from 'lucide-react';
 
 const STATUS_CONFIG: Record<string, { label: string, color: string, next: OperationStatus, shortcut: string, desc: string }> = {
@@ -48,10 +47,6 @@ const TaskManager: React.FC<TaskManagerProps> = ({
   
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [resetResponsible, setResetResponsible] = useState('');
-
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importText, setImportText] = useState('');
-  const [isProcessingImport, setIsProcessingImport] = useState(false);
 
   const [isDragging, setIsDragging] = useState(false);
   const paintedThisDrag = useRef<Set<string>>(new Set());
@@ -120,8 +115,8 @@ const TaskManager: React.FC<TaskManagerProps> = ({
   }, []);
 
   const handleOpenResetModal = () => {
-    // Agora inicia vazio para que o usuário seja obrigado a digitar seu nome conforme solicitado
-    setResetResponsible('');
+    // Preenche com o nome do usuário logado por padrão, mas permite apagar e mudar
+    setResetResponsible(currentUser.name || '');
     setIsResetModalOpen(true);
   };
 
@@ -241,34 +236,6 @@ const TaskManager: React.FC<TaskManagerProps> = ({
     }
   };
 
-  const handleImportChecklist = async () => {
-    if (!importText.trim() || !currentUser.accessToken) return;
-    
-    setIsProcessingImport(true);
-    try {
-      const parsedTasks = await parseExcelContentToTasks(importText);
-      if (parsedTasks.length === 0) {
-        alert("Não foi possível encontrar tarefas no texto colado.");
-        return;
-      }
-
-      if (confirm(`Deseja importar ${parsedTasks.length} novas tarefas para o SharePoint?`)) {
-        for (const spTask of parsedTasks) {
-          await SharePointService.createTask(currentUser.accessToken, spTask);
-        }
-        alert("Tarefas importadas com sucesso! O sistema irá recarregar para atualizar a matriz.");
-        onUserSwitch(); // Trigger a reload of data from SP
-        setIsImportModalOpen(false);
-        setImportText('');
-      }
-    } catch (error: any) {
-      console.error("Erro na importação:", error);
-      alert("Erro ao importar: " + error.message);
-    } finally {
-      setIsProcessingImport(false);
-    }
-  };
-
   const onCellInteraction = (taskId: string, loc: string, forcedStatus?: OperationStatus) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
@@ -353,14 +320,6 @@ const TaskManager: React.FC<TaskManagerProps> = ({
 
           <div className="flex items-center gap-1">
             <button 
-              onClick={() => setIsImportModalOpen(true)}
-              className="flex items-center gap-2 px-3 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-xl hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all border border-emerald-100 dark:border-emerald-800 shadow-sm"
-              title="Importar Definições de Tarefas do Excel"
-            >
-              <Upload size={18} />
-              <span className="text-xs font-bold hidden sm:inline">Importar Checklist</span>
-            </button>
-            <button 
               onClick={handleOpenResetModal}
               className="flex items-center gap-2 px-3 py-2 bg-amber-50 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-all border border-amber-100 dark:border-amber-800 shadow-sm"
               title="Resetar Checklist e Salvar no SharePoint"
@@ -379,70 +338,7 @@ const TaskManager: React.FC<TaskManagerProps> = ({
         </div>
       </div>
 
-      {/* IMPORT CHECKLIST MODAL */}
-      {isImportModalOpen && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
-             <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden border dark:border-slate-700">
-                <div className="bg-emerald-800 dark:bg-slate-800 text-white p-4 flex justify-between items-center">
-                    <div className="flex items-center gap-2">
-                        <div className="p-2 bg-emerald-600 rounded-lg">
-                            <Upload size={20} />
-                        </div>
-                        <div>
-                            <h3 className="font-bold text-lg">Importar Tarefas do Excel</h3>
-                            <p className="text-[10px] text-emerald-200">Adicione novas tarefas à estrutura do SharePoint usando IA</p>
-                        </div>
-                    </div>
-                    <button onClick={() => setIsImportModalOpen(false)} className="hover:bg-white/10 p-1 rounded-full transition-colors">
-                        <X size={24} />
-                    </button>
-                </div>
-                
-                <div className="p-6 bg-gray-50 dark:bg-slate-900">
-                    <div className="mb-4">
-                        <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2">Cole as linhas da sua planilha aqui:</label>
-                        <textarea 
-                            value={importText}
-                            onChange={(e) => setImportText(e.target.value)}
-                            className="w-full h-64 p-4 border dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-xs font-mono dark:text-white focus:ring-2 focus:ring-emerald-500 outline-none resize-none"
-                            placeholder="Copie as colunas de título, descrição, categoria e horário do Excel e cole aqui..."
-                        />
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row gap-3">
-                        <button 
-                            onClick={() => setIsImportModalOpen(false)}
-                            className="flex-1 py-3 bg-gray-200 dark:bg-slate-700 text-gray-700 dark:text-gray-200 font-bold rounded-xl hover:bg-gray-300 dark:hover:bg-slate-600 transition-colors"
-                        >
-                            Cancelar
-                        </button>
-                        <button 
-                            onClick={handleImportChecklist}
-                            disabled={!importText.trim() || isProcessingImport}
-                            className="flex-[2] py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-lg flex items-center justify-center gap-2 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            {isProcessingImport ? (
-                                <>
-                                    <Loader2 size={20} className="animate-spin" />
-                                    Processando com IA...
-                                </>
-                            ) : (
-                                <>
-                                    <Sparkles size={20} />
-                                    Importar Novas Tarefas
-                                </>
-                            )}
-                        </button>
-                    </div>
-                    <p className="mt-4 text-[10px] text-center text-slate-400 italic">
-                      A IA irá mapear automaticamente as colunas para o banco de dados do CCO.
-                    </p>
-                </div>
-             </div>
-        </div>
-      )}
-
-      {/* RESET MODAL */}
+      {/* RESET MODAL - SIMPLIFICADO SEM DROPDOWN */}
       {isResetModalOpen && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
              <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden border dark:border-slate-700">
@@ -463,7 +359,7 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                 <div className="p-6 bg-gray-50 dark:bg-slate-900">
                     <div className="mb-6">
                         <label className="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2 flex items-center gap-2">
-                            <UserCheck size={14} /> Digite seu Nome Completo para o Reset
+                            <UserCheck size={14} /> Digite seu Nome para o Reset
                         </label>
                         
                         <div className="relative">
@@ -472,11 +368,11 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                                 value={resetResponsible}
                                 onChange={(e) => setResetResponsible(e.target.value)}
                                 className="w-full p-4 border dark:border-slate-700 rounded-xl bg-white dark:bg-slate-800 text-sm dark:text-white focus:ring-2 focus:ring-amber-500 outline-none font-bold shadow-sm transition-all"
-                                placeholder="Responsável pelo fechamento..."
+                                placeholder="Seu nome completo..."
                                 autoFocus
                             />
                         </div>
-                        <p className="mt-2 text-[10px] text-slate-400 italic">A identificação manual é obrigatória para rastreabilidade no histórico.</p>
+                        <p className="mt-2 text-[10px] text-slate-400 italic">O nome informado será registrado no histórico oficial do SharePoint.</p>
                     </div>
 
                     <div className="flex gap-3 mt-8">
@@ -501,7 +397,6 @@ const TaskManager: React.FC<TaskManagerProps> = ({
             <div className="h-full flex flex-col items-center justify-center p-12 text-center">
                 <Database size={48} className="text-blue-600 mb-6 opacity-20"/>
                 <h3 className="text-lg font-black dark:text-white mb-2">Nenhuma tarefa encontrada</h3>
-                <p className="text-sm text-slate-500 max-w-xs">Use o botão "Importar Checklist" para migrar suas tarefas do Excel para o sistema.</p>
             </div>
         ) : (
             <table className={`min-w-full border-separate border-spacing-0 select-none ${compact ? 'text-[10px]' : 'text-[11px]'}`}>
@@ -553,7 +448,6 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                           >
                             <div className="flex flex-col gap-1.5">
                                 <div className="font-bold text-slate-800 dark:text-slate-100 text-[13px] leading-tight">
-                                    <span className="text-[9px] text-blue-500 font-mono mr-2">[{task.timeRange}]</span>
                                     {task.title}
                                 </div>
                                 {task.description && (

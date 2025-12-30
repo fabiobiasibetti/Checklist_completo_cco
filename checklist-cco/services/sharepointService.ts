@@ -122,34 +122,6 @@ export const SharePointService = {
     } catch (e) { return []; }
   },
 
-  async createTask(token: string, task: Partial<SPTask>): Promise<void> {
-    const siteId = await getResolvedSiteId(token);
-    const list = await findListByIdOrName(siteId, 'Tarefas_Checklist', token);
-    const { mapping, internalNames, readOnly } = await getListColumnMapping(siteId, list.id, token);
-
-    const rawFields: any = {
-      Title: task.Title,
-      Descricao: task.Descricao || "",
-      Categoria: task.Categoria || "Geral",
-      Horario: task.Horario || "--:--",
-      Ativa: task.Ativa ?? true,
-      Ordem: task.Ordem ?? 999
-    };
-
-    const fields: any = {};
-    Object.keys(rawFields).forEach(key => {
-        const int = resolveFieldName(mapping, key);
-        if (internalNames.has(int) && !readOnly.has(int)) {
-          fields[int] = rawFields[key];
-        }
-    });
-
-    await graphFetch(`/sites/${siteId}/lists/${list.id}/items`, token, {
-      method: 'POST',
-      body: JSON.stringify({ fields })
-    });
-  },
-
   async getOperations(token: string, _userEmail: string): Promise<SPOperation[]> {
     try {
         const siteId = await getResolvedSiteId(token);
@@ -336,6 +308,7 @@ export const SharePointService = {
   async getRegisteredUsers(token: string, _email: string): Promise<string[]> {
     try {
       const siteId = await getResolvedSiteId(token);
+      // NOME DA LISTA CORRIGIDO CONFORME SCREENSHOT
       const list = await findListByIdOrName(siteId, 'Usuarios_checklist_cco', token);
       const { mapping } = await getListColumnMapping(siteId, list.id, token);
       
@@ -344,13 +317,17 @@ export const SharePointService = {
       const results: string[] = [];
       const items = data.value || [];
 
+      // Mapeia especificamente a coluna Nome informada pelo usuário
       const colNome = resolveFieldName(mapping, 'Nome');
 
       items.forEach((item: any) => {
         const f = item.fields || {};
+        
+        // Prioridade de leitura para o Nome
         let name = f[colNome] || f.Nome || f.LinkTitle || f.Title || "";
 
         if (!name || (typeof name === 'string' && name.trim().length === 0)) {
+           // Fallback para qualquer campo de texto
            const anyTextField = Object.entries(f).find(([key, val]) => {
               if (typeof val !== 'string' || key.startsWith('@') || key === 'id' || key === 'ContentType') return false;
               const valTrim = val.trim();
@@ -365,6 +342,7 @@ export const SharePointService = {
       });
 
       const finalResults = Array.from(new Set(results)).sort((a, b) => a.localeCompare(b));
+      console.log(`[AUTH] Carregadas ${finalResults.length} sugestões de usuários.`);
       return finalResults;
     } catch (e) { 
       console.error("Erro crítico em getRegisteredUsers:", e);

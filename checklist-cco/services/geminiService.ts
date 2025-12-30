@@ -1,28 +1,27 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { Task, TaskPriority, TaskStatus, RouteDeparture, SPTask } from "../types";
+import { Task, TaskPriority, TaskStatus, RouteDeparture } from "../types";
 
 /**
  * Service to handle AI interactions using Gemini API.
  * Following strict guidelines for initialization and model selection.
  */
 
-export const parseExcelContentToTasks = async (rawText: string): Promise<Partial<SPTask>[]> => {
+export const parseExcelContentToTasks = async (rawText: string): Promise<Partial<Task>[]> => {
   // Always initialize AI instance with apiKey inside the function for text tasks
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
     Analyze the following raw text which was copied from a spreadsheet (Excel/CSV).
-    It represents a list of operational tasks for a logistics checklist (Checklist CCO).
-    Extract the tasks into a structured JSON array suitable for a SharePoint list.
+    It represents a list of tasks for a CRM or Checklist.
+    Extract the tasks into a structured JSON array.
     
-    Mapping:
-    - Title: The main action or name of the task.
-    - Descricao: Detailed instructions or description.
-    - Categoria: The grouping category (e.g., "ORGANIZAÇÃO PARA O PRÓXIMO DIA", "ACOMPANHAMENTO DIÁRIO").
-    - Horario: Expected time or range (e.g., "22:00h - 00:00h", "10:00h").
-    - Ativa: Boolean, default true.
-    - Ordem: Integer representing the sort sequence.
+    If columns are not clear, infer the meaning based on content.
+    - Infer 'title' from the main activity description.
+    - Infer 'description' if there are extra details.
+    - Infer 'priority' (High, Medium, Low) based on urgency words. Defaults to 'Medium'.
+    - Infer 'category' (e.g., Sales, Admin, Meeting) based on context.
+    - Infer 'dueDate' if a date is present, format as YYYY-MM-DD. If not, leave empty.
     
     Raw Text:
     """
@@ -41,30 +40,35 @@ export const parseExcelContentToTasks = async (rawText: string): Promise<Partial
           items: {
             type: Type.OBJECT,
             properties: {
-              Title: { type: Type.STRING },
-              Descricao: { type: Type.STRING },
-              Categoria: { type: Type.STRING },
-              Horario: { type: Type.STRING },
-              Ativa: { type: Type.BOOLEAN },
-              Ordem: { type: Type.INTEGER },
+              title: { type: Type.STRING },
+              description: { type: Type.STRING },
+              priority: { type: Type.STRING, enum: ["Baixa", "Média", "Alta"] },
+              category: { type: Type.STRING },
+              dueDate: { type: Type.STRING },
             },
-            required: ["Title", "Categoria"]
+            required: ["title", "priority", "category"]
           }
         }
       }
     });
 
     if (response.text) {
-      return JSON.parse(response.text.trim());
+      const parsed = JSON.parse(response.text.trim());
+      return parsed.map((item: any) => ({
+        ...item,
+        status: TaskStatus.TODO,
+        createdAt: new Date().toISOString()
+      }));
     }
     return [];
   } catch (error) {
-    console.error("Error parsing Checklist tasks with Gemini:", error);
+    console.error("Error parsing Excel content with Gemini:", error);
     throw error;
   }
 };
 
 export const parseRouteDepartures = async (rawText: string): Promise<Partial<RouteDeparture>[]> => {
+  // Always initialize AI instance with apiKey inside the function for text tasks
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
@@ -138,6 +142,7 @@ export const parseRouteDepartures = async (rawText: string): Promise<Partial<Rou
 };
 
 export const suggestTasksFromGoal = async (goal: string): Promise<Partial<Task>[]> => {
+  // Always initialize AI instance with apiKey inside the function for text tasks
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
   const prompt = `
