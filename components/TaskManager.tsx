@@ -12,12 +12,12 @@ import {
 } from 'lucide-react';
 
 const STATUS_CONFIG: Record<string, { label: string, color: string, next: OperationStatus, shortcut: string, desc: string }> = {
-  'OK': { label: 'OK', color: 'bg-green-200 text-green-800 border-green-300 dark:bg-green-900/60 dark:text-green-300 dark:border-green-800', next: 'EA', shortcut: '1', desc: 'Concluído' },
-  'EA': { label: 'EA', color: 'bg-yellow-200 text-yellow-800 border-yellow-300 dark:bg-yellow-900/60 dark:text-yellow-300 dark:border-yellow-800', next: 'AR', shortcut: '2', desc: 'Em Andamento' },
-  'ATT': { label: 'ATT', color: 'bg-blue-200 text-blue-800 border-blue-300 dark:bg-blue-900/60 dark:text-blue-300 dark:border-blue-800', next: 'AT', shortcut: '3', desc: 'Atualizar' },
-  'AR': { label: 'AR', color: 'bg-orange-200 text-orange-800 border-orange-300 dark:bg-orange-900/60 dark:text-orange-300 dark:border-orange-800', next: 'ATT', shortcut: '4', desc: 'Aguardando Retorno' },
-  'AT': { label: 'AT', color: 'bg-red-500 text-white border-red-600 dark:bg-red-800 dark:text-white dark:border-red-700', next: 'PR', shortcut: '5', desc: 'Atrasado' },
-  'PR': { label: 'PR', color: 'bg-slate-200 text-slate-600 border-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600', next: 'OK', shortcut: '6', desc: 'Pendente' },
+  'OK': { label: 'OK', color: 'bg-emerald-500 text-white border-emerald-600 shadow-emerald-500/20 dark:bg-emerald-600', next: 'EA', shortcut: '1', desc: 'Concluído' },
+  'EA': { label: 'EA', color: 'bg-amber-400 text-slate-900 border-amber-500 shadow-amber-400/20 dark:bg-amber-500 dark:text-slate-950', next: 'AR', shortcut: '2', desc: 'Em Andamento' },
+  'ATT': { label: 'ATT', color: 'bg-sky-500 text-white border-sky-600 shadow-sky-500/20 dark:bg-sky-600', next: 'AT', shortcut: '3', desc: 'Atualizar' },
+  'AR': { label: 'AR', color: 'bg-orange-500 text-white border-orange-600 shadow-orange-500/20 dark:bg-orange-600', next: 'ATT', shortcut: '4', desc: 'Aguardando Retorno' },
+  'AT': { label: 'AT', color: 'bg-rose-600 text-white border-rose-700 shadow-rose-600/20 dark:bg-rose-700', next: 'PR', shortcut: '5', desc: 'Atrasado' },
+  'PR': { label: 'PR', color: 'bg-slate-400 text-white border-slate-500 shadow-slate-400/20 dark:bg-slate-500', next: 'OK', shortcut: '6', desc: 'Pendente' },
 };
 
 interface TaskManagerProps {
@@ -230,7 +230,7 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                 <button 
                   key={key} 
                   onClick={() => setActiveTool(activeTool === key ? null : key as OperationStatus)} 
-                  className={`w-7 h-7 rounded-lg font-black text-[9px] transition-all border flex items-center justify-center relative group ${cfg.color} ${activeTool === key ? 'ring-2 ring-offset-2 ring-blue-500 scale-110 z-10' : 'opacity-80 hover:opacity-100'}`}
+                  className={`w-8 h-8 rounded-lg font-black text-[11px] transition-all border flex items-center justify-center relative group shadow-sm ${cfg.color} ${activeTool === key ? 'ring-2 ring-offset-2 ring-blue-500 scale-110 z-10' : 'opacity-85 hover:opacity-100 hover:scale-105'}`}
                   title={`${cfg.desc}`}
                 >
                   {cfg.label}
@@ -392,7 +392,7 @@ const TaskManager: React.FC<TaskManagerProps> = ({
                                     handleUpdateStatus(task.id, loc, next);
                                 }}
                               >
-                                <div className={`absolute inset-[3px] rounded-lg flex items-center justify-center font-black text-[10px] ${cfg.color} hover:brightness-95 active:scale-90 shadow-sm transition-all`}>
+                                <div className={`absolute inset-[3px] rounded-lg flex items-center justify-center font-black text-[12px] ${cfg.color} hover:brightness-110 active:scale-90 shadow transition-all border`}>
                                   {cfg.label}
                                 </div>
                               </td>

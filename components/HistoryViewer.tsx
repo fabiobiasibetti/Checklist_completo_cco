@@ -5,12 +5,12 @@ import { History, Calendar, Clock, ChevronRight, ChevronDown, CheckCircle2, User
 import React, { useState, useEffect } from 'react';
 
 const STATUS_CONFIG: Record<string, { label: string, color: string }> = {
-  'PR': { label: 'PR', color: 'bg-slate-200 text-slate-600 border-slate-300 dark:bg-slate-700 dark:text-slate-300 dark:border-slate-600' },
-  'OK': { label: 'OK', color: 'bg-green-200 text-green-800 border-green-300 dark:bg-green-900/60 dark:text-green-300 dark:border-green-800' },
-  'EA': { label: 'EA', color: 'bg-yellow-200 text-yellow-800 border-yellow-300 dark:bg-yellow-900/60 dark:text-yellow-300 dark:border-yellow-800' },
-  'AR': { label: 'AR', color: 'bg-orange-200 text-orange-800 border-orange-300 dark:bg-orange-900/60 dark:text-orange-300 dark:border-orange-800' },
-  'ATT': { label: 'ATT', color: 'bg-blue-200 text-blue-800 border-blue-300 dark:bg-blue-900/60 dark:text-blue-300 dark:border-blue-800' },
-  'AT': { label: 'AT', color: 'bg-red-500 text-white border-red-600 dark:bg-red-800 dark:text-white dark:border-red-700' },
+  'PR': { label: 'PR', color: 'bg-slate-400 text-white border-slate-500 dark:bg-slate-500' },
+  'OK': { label: 'OK', color: 'bg-emerald-500 text-white border-emerald-600 dark:bg-emerald-600' },
+  'EA': { label: 'EA', color: 'bg-amber-400 text-slate-900 border-amber-500 dark:bg-amber-500 dark:text-slate-950' },
+  'AR': { label: 'AR', color: 'bg-orange-500 text-white border-orange-600 dark:bg-orange-600' },
+  'ATT': { label: 'ATT', color: 'bg-sky-500 text-white border-sky-600 dark:bg-sky-600' },
+  'AT': { label: 'AT', color: 'bg-rose-600 text-white border-rose-700 dark:bg-rose-700' },
 };
 
 interface HistoryViewerProps {
@@ -220,7 +220,7 @@ const HistoryViewer: React.FC<HistoryViewerProps> = ({ currentUser }) => {
                                                 const config = STATUS_CONFIG[statusKey] || STATUS_CONFIG['PR'];
                                                 return (
                                                     <td key={`${task.id}-${loc}`} className="p-0 border-r border-gray-100 dark:border-slate-800 h-full relative">
-                                                        <div className={`absolute inset-[2px] rounded flex items-center justify-center text-[8px] font-black border ${config.color} shadow-sm uppercase`}>
+                                                        <div className={`absolute inset-[2px] rounded flex items-center justify-center text-[10px] font-black border ${config.color} shadow-sm uppercase`}>
                                                             {config.label}
                                                         </div>
                                                     </td>
